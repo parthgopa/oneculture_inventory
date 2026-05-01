@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { API_BASE_URL } from '../config'
+import { API_BASE_URL, apiFetch } from '../config'
+import MobileBarcodeScanner from './MobileBarcodeScanner'
 import { 
   MdInventory2, 
   MdShowChart, 
@@ -7,14 +8,24 @@ import {
   MdRemoveCircle,
   MdTrendingUp,
   MdTrendingDown,
-  MdRefresh
+  MdRefresh,
+  MdQrCodeScanner
 } from 'react-icons/md'
 
 function Dashboard() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [showScanner, setShowScanner] = useState(false)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
 
   const [refreshing, setRefreshing] = useState(false)
+
+  // Handle window resize for responsive layout
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   useEffect(() => {
     fetchDashboardStats()
@@ -22,7 +33,7 @@ function Dashboard() {
 
   const fetchDashboardStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`)
+      const response = await apiFetch('/api/dashboard/stats')
       const data = await response.json()
       setStats(data)
     } catch (error) {
@@ -51,7 +62,13 @@ function Dashboard() {
 
   return (
     <div>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="page-header" style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'stretch' : 'flex-start',
+        gap: isMobile ? '16px' : '0'
+      }}>
         <div>
           <h1 className="page-title">
             <MdShowChart size={32} style={{ verticalAlign: 'middle', marginRight: '12px' }} />
@@ -59,15 +76,30 @@ function Dashboard() {
           </h1>
           <p className="page-subtitle">Inventory overview and analytics</p>
         </div>
-        <button 
-          className="btn btn-outline" 
-          onClick={handleRefresh}
-          disabled={refreshing}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-        >
-          <MdRefresh size={20} className={refreshing ? 'spin' : ''} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <div style={{
+          display: 'flex',
+          gap: '10px',
+          flexWrap: 'wrap',
+          justifyContent: isMobile ? 'stretch' : 'flex-end'
+        }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowScanner(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: isMobile ? '1 1 auto' : 'none' }}
+          >
+            <MdQrCodeScanner size={20} />
+            Scan Barcode
+          </button>
+          <button
+            className="btn btn-outline"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: isMobile ? '1 1 auto' : 'none' }}
+          >
+            <MdRefresh size={20} className={refreshing ? 'spin' : ''} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* ── Key Metrics ───────────────────────────────────────────────────────── */}
@@ -286,6 +318,17 @@ function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Mobile Barcode Scanner Overlay */}
+      {showScanner && (
+        <MobileBarcodeScanner 
+          onClose={() => setShowScanner(false)} 
+          onScanSuccess={() => {
+            // Refresh stats after successful scan
+            setTimeout(() => fetchDashboardStats(), 500)
+          }}
+        />
+      )}
     </div>
   )
 }

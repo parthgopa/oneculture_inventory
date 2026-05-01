@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { API_BASE_URL } from '../config'
+import { apiFetch, API_BASE_URL } from '../config'
 import {
   MdArrowBack,
   MdInventory,
@@ -49,8 +49,7 @@ function ProductDetails() {
   const fetchProductDetails = async () => {
     try {
       setLoading(true)
-      const url = `${API_BASE_URL}/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}`
-      const response = await fetch(url)
+      const response = await apiFetch(`/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}`)
       
       if (!response.ok) {
         throw new Error('Product not found')
@@ -72,8 +71,8 @@ function ProductDetails() {
     
     setSavingImage(true)
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/barcode-batches/${productData.batch_id}/image`,
+      const response = await apiFetch(
+        `/api/barcode-batches/${productData.batch_id}/image`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -93,16 +92,22 @@ function ProductDetails() {
 
   // ── CSV export ───────────────────────────────────────────────────────────────
   const handleExportCSV = () => {
-    const url = `${API_BASE_URL}/api/inventory/product/${encodeURIComponent(skuName)}/export?company=${encodeURIComponent(companyName)}`
-    window.open(url, '_blank')
+    apiFetch(`/api/inventory/product/${encodeURIComponent(skuName)}/export?company=${encodeURIComponent(companyName)}`)
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${skuName}_export.csv`
+        a.click()
+      })
   }
 
   // ── delete product ──────────────────────────────────────────────────────────
   const handleDeleteProduct = async () => {
     setDeleting(true)
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}`,
+      const response = await apiFetch(
+        `/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}`,
         { method: 'DELETE' }
       )
       
@@ -129,41 +134,13 @@ function ProductDetails() {
   }
 
   const handlePrintBarcode = (barcodeId) => {
-    // Generate barcode as SVG bars
-    const generateBarcodeImage = (code) => {
-      // Simple Code 128-like barcode visualization
-      const bars = []
-      for (let i = 0; i < code.length; i++) {
-        const charCode = code.charCodeAt(i)
-        // Create pattern based on character code
-        const pattern = (charCode % 4) + 1
-        for (let j = 0; j < pattern; j++) {
-          bars.push(1) // black bar
-        }
-        bars.push(0) // white space
-      }
-      
-      const barWidth = 3
-      const height = 100
-      let svgBars = ''
-      let x = 0
-      
-      bars.forEach(bar => {
-        if (bar === 1) {
-          svgBars += `<rect x="${x}" y="0" width="${barWidth}" height="${height}" fill="black"/>`
-        }
-        x += barWidth
-      })
-      
-      return `<svg width="${x}" height="${height}" xmlns="http://www.w3.org/2000/svg">${svgBars}</svg>`
-    }
-
     const printWindow = window.open('', '_blank')
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
           <title>Print Barcode - ${barcodeId}</title>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
           <style>
             body {
               font-family: Arial, sans-serif;
@@ -186,29 +163,13 @@ function ProductDetails() {
             .product-name {
               font-size: 24px;
               font-weight: bold;
-              margin-bottom: 10px;
+              margin-bottom: 6px;
               color: #333;
             }
             .company-name {
               font-size: 16px;
               color: #666;
               margin-bottom: 20px;
-            }
-            .barcode-image {
-              margin: 20px 0;
-              padding: 15px;
-              background: white;
-              border: 1px solid #ddd;
-              border-radius: 4px;
-              display: inline-block;
-            }
-            .barcode-id {
-              font-size: 18px;
-              font-weight: bold;
-              font-family: 'Courier New', monospace;
-              letter-spacing: 3px;
-              margin: 10px 0;
-              color: #333;
             }
             .mrp {
               font-size: 20px;
@@ -217,14 +178,9 @@ function ProductDetails() {
               font-weight: bold;
             }
             @media print {
-              body { 
-                padding: 20px;
-                background: white;
-              }
+              body { padding: 20px; background: white; }
               .no-print { display: none; }
-              .barcode-container {
-                box-shadow: none;
-              }
+              .barcode-container { box-shadow: none; border: 1px solid #ccc; }
             }
           </style>
         </head>
@@ -232,10 +188,7 @@ function ProductDetails() {
           <div class="barcode-container">
             <div class="product-name">${productData.sku_name}</div>
             <div class="company-name">${productData.company_name}</div>
-            <div class="barcode-image">
-              ${generateBarcodeImage(barcodeId)}
-            </div>
-            <div class="barcode-id">${barcodeId}</div>
+            <svg id="barcode"></svg>
             <div class="mrp">MRP: ₹${productData.mrp.toFixed(2)}</div>
           </div>
           <div class="no-print" style="margin-top: 30px;">
@@ -246,6 +199,18 @@ function ProductDetails() {
               Close
             </button>
           </div>
+          <script>
+            JsBarcode("#barcode", "${barcodeId}", {
+              format: "CODE128",
+              width: 2.5,
+              height: 100,
+              displayValue: true,
+              fontSize: 16,
+              margin: 10,
+              background: "#ffffff",
+              lineColor: "#000000"
+            });
+          <\/script>
         </body>
       </html>
     `)

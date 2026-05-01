@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { apiFetch } from '../config'
+import { getSettings } from './Settings'
 import { 
   MdDashboard, 
   MdQrCodeScanner, 
@@ -8,22 +10,53 @@ import {
   MdQrCode2, 
   MdLogout,
   MdMenu,
-  MdClose
+  MdClose,
+  MdBuild,
+  MdTimeline,
+  MdNotifications,
+  MdSettings
 } from 'react-icons/md'
 import styles from './Sidebar.module.css'
 
-// Navigation items
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: MdDashboard },
   { path: '/scanner', label: 'Scanner', icon: MdQrCodeScanner },
   { path: '/inventory', label: 'Inventory', icon: MdInventory },
+  { path: '/production', label: 'Production', icon: MdBuild },
+  { path: '/tracker', label: 'Prod. Tracker', icon: MdTimeline },
   { path: '/generator', label: 'Generate Barcodes', icon: MdQrCode2 },
+  { path: '/alerts', label: 'Alerts', icon: MdNotifications, badge: true },
+  { path: '/settings', label: 'Settings', icon: MdSettings },
 ]
 
 function Sidebar() {
   const { user, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  const [alertCount, setAlertCount] = useState(0)
+
+  // Poll inventory to show low-stock badge count
+  useEffect(() => {
+    const computeBadge = async () => {
+      try {
+        const threshold = getSettings().lowStockThreshold
+        const res = await apiFetch('/api/inventory')
+        const data = await res.json()
+        if (Array.isArray(data)) {
+          const count = data.filter(i => i.total_stock < threshold).length
+          setAlertCount(count)
+        }
+      } catch { /* silent */ }
+    }
+    computeBadge()
+    const interval = setInterval(computeBadge, 30000)
+    const onSettings = () => computeBadge()
+    window.addEventListener('oc:settingsChanged', onSettings)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('oc:settingsChanged', onSettings)
+    }
+  }, [])
 
   // Handle window resize
   useEffect(() => {
@@ -87,7 +120,7 @@ function Sidebar() {
 
         {/* Navigation */}
         <nav className={styles.nav}>
-          {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+          {NAV_ITEMS.map(({ path, label, icon: Icon, badge }) => (
             <NavLink
               key={path}
               to={path}
@@ -99,6 +132,22 @@ function Sidebar() {
             >
               <Icon size={20} />
               <span>{label}</span>
+              {badge && alertCount > 0 && (
+                <span style={{
+                  marginLeft: 'auto',
+                  background: 'var(--danger-color, #ef4444)',
+                  color: '#fff',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  borderRadius: '10px',
+                  padding: '1px 7px',
+                  minWidth: '20px',
+                  textAlign: 'center',
+                  lineHeight: '18px'
+                }}>
+                  {alertCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

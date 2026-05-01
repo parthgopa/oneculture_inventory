@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { API_BASE_URL } from '../config'
+import { apiFetch } from '../config'
+import { getSettings } from './Settings'
 import { 
   MdInventory, 
   MdTrendingUp,
@@ -31,12 +32,20 @@ function Inventory() {
   const [productImages, setProductImages] = useState({})
   const [selectedImage, setSelectedImage] = useState(null)
 
+  const [threshold, setThreshold] = useState(getSettings().lowStockThreshold)
+
+  useEffect(() => {
+    const onSettingsChange = (e) => setThreshold(e.detail.lowStockThreshold)
+    window.addEventListener('oc:settingsChanged', onSettingsChange)
+    return () => window.removeEventListener('oc:settingsChanged', onSettingsChange)
+  }, [])
+
   // ── data fetching ────────────────────────────────────────────────────────────
   const fetchInventory = useCallback(async () => {
     try {
       const [invRes, summaryRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/inventory`),
-        fetch(`${API_BASE_URL}/api/inventory/summary`)
+        apiFetch('/api/inventory'),
+        apiFetch('/api/inventory/summary')
       ])
       const invData = await invRes.json()
       const summaryData = await summaryRes.json()
@@ -63,13 +72,9 @@ function Inventory() {
   }, [searchTerm, filterStock])
 
   // ── helpers ──────────────────────────────────────────────────────────────────
-  const getStockStatus = (stock, status) => {
-    if (status === 'OUT_OF_STOCK' || stock === 0) {
-      return { label: 'Out of Stock', class: 'danger', indicator: 'out' }
-    }
-    if (status === 'LOW_STOCK' || stock < 10) {
-      return { label: 'Low Stock', class: 'warning', indicator: 'low' }
-    }
+  const getStockStatus = (stock) => {
+    if (stock === 0) return { label: 'Out of Stock', class: 'danger', indicator: 'out' }
+    if (stock < threshold) return { label: 'Low Stock', class: 'warning', indicator: 'low' }
     return { label: 'In Stock', class: 'success', indicator: 'high' }
   }
 
@@ -131,8 +136,8 @@ function Inventory() {
         const key = `${product.sku_name}_${product.company_name}`
         if (!productImages[key]) {
           try {
-            const response = await fetch(
-              `${API_BASE_URL}/api/inventory/product-image/${encodeURIComponent(product.sku_name)}?company=${encodeURIComponent(product.company_name)}`
+            const response = await apiFetch(
+              `/api/inventory/product-image/${encodeURIComponent(product.sku_name)}?company=${encodeURIComponent(product.company_name)}`
             )
             const data = await response.json()
             if (data.image) {
@@ -289,7 +294,7 @@ function Inventory() {
               </thead>
               <tbody>
                 {paginatedInventory.map((item) => {
-                  const status = getStockStatus(item.total_stock, item.status)
+                  const status = getStockStatus(item.total_stock)
                   const imageKey = `${item.sku_name}_${item.company_name}`
                   const productImage = productImages[imageKey]
                   

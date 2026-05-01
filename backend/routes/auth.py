@@ -166,6 +166,52 @@ def login():
         return jsonify({'error': 'Login failed. Please try again.'}), 500
 
 
+@auth_bp.route('/api/auth/preferences', methods=['GET'])
+def get_preferences():
+    """Get user preferences from users collection"""
+    try:
+        from bson import ObjectId
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'user_id required'}), 400
+
+        user = users_collection.find_one({'_id': ObjectId(user_id)}, {'preferences': 1})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        prefs = user.get('preferences', {'lowStockThreshold': 50})
+        return jsonify(prefs), 200
+
+    except Exception as e:
+        print(f"[AUTH] get_preferences error: {str(e)}")
+        return jsonify({'error': 'Failed to fetch preferences'}), 500
+
+
+@auth_bp.route('/api/auth/preferences', methods=['PUT'])
+def update_preferences():
+    """Save user preferences to users collection"""
+    try:
+        from bson import ObjectId
+        data = request.json
+        user_id = data.get('user_id')
+        preferences = data.get('preferences')
+
+        if not user_id or preferences is None:
+            return jsonify({'error': 'user_id and preferences required'}), 400
+
+        users_collection.update_one(
+            {'_id': ObjectId(user_id)},
+            {'$set': {'preferences': preferences}},
+            upsert=False
+        )
+        print(f"[AUTH] Preferences updated for user: {user_id}")
+        return jsonify({'message': 'Preferences saved'}), 200
+
+    except Exception as e:
+        print(f"[AUTH] update_preferences error: {str(e)}")
+        return jsonify({'error': 'Failed to save preferences'}), 500
+
+
 @auth_bp.route('/api/auth/verify', methods=['POST'])
 def verify_session():
     """Verify if stored user session is valid"""

@@ -1,61 +1,48 @@
 import { useState, useEffect } from 'react'
-import { API_BASE_URL } from '../config'
-import { 
-  MdNotifications, 
-  MdWarning, 
+import { useNavigate } from 'react-router-dom'
+import { apiFetch } from '../config'
+import { getSettings } from './Settings'
+import {
+  MdNotifications,
+  MdWarning,
   MdError,
   MdCheckCircle,
-  MdFilterList,
-  MdClose
+  MdSettings,
+  MdRefresh
 } from 'react-icons/md'
 
 function Alerts() {
-  const [alerts, setAlerts] = useState([])
+  const navigate = useNavigate()
+  const [inventory, setInventory] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('unresolved')
+  const [threshold, setThreshold] = useState(getSettings().lowStockThreshold)
 
   useEffect(() => {
-    fetchAlerts()
-    const interval = setInterval(fetchAlerts, 10000)
-    return () => clearInterval(interval)
+    fetchAll()
+    const interval = setInterval(fetchAll, 10000)
+    // Re-read threshold when settings change
+    const onSettingsChange = (e) => setThreshold(e.detail.lowStockThreshold)
+    window.addEventListener('oc:settingsChanged', onSettingsChange)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('oc:settingsChanged', onSettingsChange)
+    }
   }, [])
 
-  const fetchAlerts = async () => {
+  const fetchAll = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/alerts`)
-      const data = await response.json()
-      setAlerts(data)
-      setLoading(false)
+      const res = await apiFetch('/api/inventory')
+      const data = await res.json()
+      setInventory(Array.isArray(data) ? data : [])
     } catch (error) {
-      console.error('Error fetching alerts:', error)
+      console.error('Error fetching inventory:', error)
+    } finally {
       setLoading(false)
     }
   }
 
-  const handleResolve = async (alertId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/alerts/${alertId}/resolve`, {
-        method: 'PUT',
-      })
-
-      if (response.ok) {
-        fetchAlerts()
-      }
-    } catch (error) {
-      console.error('Error resolving alert:', error)
-    }
-  }
-
-  const filteredAlerts = alerts.filter(alert => {
-    if (filter === 'all') return true
-    if (filter === 'unresolved') return !alert.resolved
-    if (filter === 'resolved') return alert.resolved
-    if (filter === 'out-of-stock') return alert.alert_type === 'OUT_OF_STOCK' && !alert.resolved
-    if (filter === 'low-stock') return alert.alert_type === 'LOW_STOCK' && !alert.resolved
-    return true
-  })
-
-  const unresolvedCount = alerts.filter(a => !a.resolved).length
+  const lowStockItems = inventory.filter(i => i.total_stock > 0 && i.total_stock < threshold)
+  const outOfStockItems = inventory.filter(i => i.total_stock === 0)
 
   if (loading) {
     return (
@@ -68,101 +55,93 @@ function Alerts() {
     )
   }
 
+  // Combine: out-of-stock + below-threshold, sorted worst first
+  const alertRows = [
+    ...outOfStockItems.map(i => ({ ...i, alertType: 'OUT_OF_STOCK' })),
+    ...lowStockItems.map(i => ({ ...i, alertType: 'LOW_STOCK' }))
+  ].sort((a, b) => a.total_stock - b.total_stock)
+
   return (
     <div>
-      <div className="page-header">
-        <h1 className="page-title">
-          <MdNotifications size={32} style={{ verticalAlign: 'middle', marginRight: '12px' }} />
-          Alerts & Notifications
-        </h1>
-        <p className="page-subtitle">Monitor stock alerts and critical inventory issues</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 className="page-title">
+            <MdNotifications size={28} style={{ verticalAlign: 'middle', marginRight: '10px' }} />
+            Stock Alerts
+          </h1>
+          <p className="page-subtitle">
+            Showing SKUs with stock below <strong>{threshold} units</strong>
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-outline" onClick={fetchAll} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+            <MdRefresh size={16} /> Refresh
+          </button>
+          <button className="btn btn-outline" onClick={() => navigate('/settings')} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+            <MdSettings size={16} /> Change Threshold ({threshold})
+          </button>
+        </div>
       </div>
 
-      {unresolvedCount > 0 && (
-        <div className="alert alert-warning" style={{ marginBottom: '24px' }}>
-          <MdWarning size={20} style={{ flexShrink: 0 }} />
-          <div>
-            <strong>{unresolvedCount} unresolved alert{unresolvedCount !== 1 ? 's' : ''}</strong>
-            <div style={{ fontSize: '14px', marginTop: '4px' }}>
-              Please review and take necessary action
-            </div>
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div className="card" style={{ flex: 1, minWidth: '140px', padding: '16px', textAlign: 'center', borderLeft: '4px solid var(--danger-color)' }}>
+          <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--danger-color)' }}>{outOfStockItems.length}</div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Out of Stock</div>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '140px', padding: '16px', textAlign: 'center', borderLeft: '4px solid var(--warning-color)' }}>
+          <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--warning-color)' }}>{lowStockItems.length}</div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Low Stock (below {threshold})</div>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '140px', padding: '16px', textAlign: 'center', borderLeft: '4px solid var(--success-color)' }}>
+          <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--success-color)' }}>
+            {inventory.length - outOfStockItems.length - lowStockItems.length}
           </div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Healthy SKUs</div>
         </div>
-      )}
+      </div>
 
+      {/* Main SKU alert table */}
       <div className="card">
-        <div style={{ marginBottom: '24px' }}>
-          <select
-            className="form-select"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            style={{ minWidth: '200px' }}
-          >
-            <option value="unresolved">Unresolved Alerts</option>
-            <option value="all">All Alerts</option>
-            <option value="resolved">Resolved Alerts</option>
-            <option value="out-of-stock">Out of Stock</option>
-            <option value="low-stock">Low Stock</option>
-          </select>
-        </div>
-
-        {filteredAlerts.length > 0 ? (
+        {alertRows.length > 0 ? (
           <div className="table-container">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Barcode ID</th>
-                  <th>Company</th>
-                  <th>SKU</th>
-                  <th>Message</th>
-                  <th>Stock</th>
-                  <th>Created</th>
                   <th>Status</th>
-                  <th>Action</th>
+                  <th>SKU Name</th>
+                  <th>Company</th>
+                  <th>Current Stock</th>
+                  <th>Threshold</th>
+                  <th>Shortage</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredAlerts.map((alert) => (
-                  <tr key={alert._id}>
+                {alertRows.map((item, idx) => (
+                  <tr key={idx}>
                     <td>
-                      <span className={`badge ${alert.alert_type === 'OUT_OF_STOCK' ? 'badge-danger' : 'badge-warning'}`}>
-                        {alert.alert_type === 'OUT_OF_STOCK' ? (
-                          <><MdError size={14} /> Out</>
-                        ) : (
-                          <><MdWarning size={14} /> Low</>
-                        )}
-                      </span>
+                      {item.alertType === 'OUT_OF_STOCK' ? (
+                        <span className="badge badge-danger">
+                          <MdError size={13} /> Out of Stock
+                        </span>
+                      ) : (
+                        <span className="badge badge-warning">
+                          <MdWarning size={13} /> Low Stock
+                        </span>
+                      )}
                     </td>
-                    <td><code>{alert.barcode_id}</code></td>
-                    <td>{alert.company_name}</td>
-                    <td><strong>{alert.sku_name}</strong></td>
-                    <td>{alert.message}</td>
+                    <td><strong>{item.sku_name}</strong></td>
+                    <td>{item.company_name}</td>
                     <td>
-                      <strong style={{ 
-                        color: alert.current_stock === 0 ? 'var(--danger-color)' : 'var(--warning-color)' 
-                      }}>
-                        {alert.current_stock}
+                      <strong style={{ color: item.total_stock === 0 ? 'var(--danger-color)' : 'var(--warning-color)', fontSize: '15px' }}>
+                        {item.total_stock}
                       </strong>
                     </td>
-                    <td>{new Date(alert.created_at).toLocaleString()}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{threshold}</td>
                     <td>
-                      {alert.resolved ? (
-                        <span className="badge badge-success"><MdCheckCircle size={14} /> Resolved</span>
-                      ) : (
-                        <span className="badge badge-danger"><MdError size={14} /> Active</span>
-                      )}
-                    </td>
-                    <td>
-                      {!alert.resolved && (
-                        <button
-                          onClick={() => handleResolve(alert._id)}
-                          className="btn btn-outline"
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          Mark Resolved
-                        </button>
-                      )}
+                      <strong style={{ color: 'var(--danger-color)' }}>
+                        −{threshold - item.total_stock}
+                      </strong>
                     </td>
                   </tr>
                 ))}
@@ -171,12 +150,10 @@ function Alerts() {
           </div>
         ) : (
           <div className="empty-state">
-            <div className="empty-state-icon"><MdNotifications size={64} /></div>
-            <div className="empty-state-title">No alerts found</div>
+            <div className="empty-state-icon"><MdCheckCircle size={64} /></div>
+            <div className="empty-state-title">All stock levels are healthy</div>
             <div className="empty-state-description">
-              {filter === 'unresolved' 
-                ? 'All alerts have been resolved!'
-                : 'Alerts will appear here when stock levels are critical'}
+              No SKU is below the threshold of <strong>{threshold} units</strong>
             </div>
           </div>
         )}

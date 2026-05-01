@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { API_BASE_URL } from '../config'
+import { apiFetch } from '../config'
 import { scannerService } from '../utils/scannerDetection'
 import {
   MdQrCodeScanner,
@@ -63,7 +63,7 @@ function Scanner() {
     console.log('📱 Browser support:', sup)
 
     // 1. Clean up any duplicate entries left from previous sessions
-    fetch(`${API_BASE_URL}/api/scanners/cleanup-duplicates`, { method: 'DELETE' })
+    apiFetch('/api/scanners/cleanup-duplicates', { method: 'DELETE' })
       .then(r => r.json())
       .then(d => { if (d.message) console.log('🧹', d.message) })
       .catch(() => {})
@@ -132,9 +132,8 @@ function Scanner() {
     }
     const sid = makeScannerId(device)
     try {
-      await fetch(`${API_BASE_URL}/api/scanners`, {
+      await apiFetch('/api/scanners', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scanner_id:  sid,
           name:        device.productName || 'USB Scanner',
@@ -154,7 +153,7 @@ function Scanner() {
   // ── DB scanner CRUD ─────────────────────────────────────────────────────────
   const loadDbScanners = async () => {
     try {
-      const res  = await fetch(`${API_BASE_URL}/api/scanners`)
+      const res  = await apiFetch('/api/scanners')
       const data = await res.json()
       console.log('📥 DB scanners loaded:', data.length, 'device(s)', data)
       setDbScanners(data)
@@ -166,9 +165,8 @@ function Scanner() {
   const toggleMode = async (scanner) => {
     const next = scanner.mode === 'IN' ? 'OUT' : 'IN'
     console.log(`🔄 ${scanner.name} → mode ${next}`)
-    await fetch(`${API_BASE_URL}/api/scanners/${scanner.scanner_id}/mode`, {
+    await apiFetch(`/api/scanners/${scanner.scanner_id}/mode`, {
       method:  'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ mode: next })
     })
     await loadDbScanners()
@@ -176,7 +174,7 @@ function Scanner() {
 
   const removeScanner = async (scanner) => {
     console.log(`🗑️  Removing scanner: ${scanner.name}`)
-    await fetch(`${API_BASE_URL}/api/scanners/${scanner.scanner_id}`, { method: 'DELETE' })
+    await apiFetch(`/api/scanners/${scanner.scanner_id}`, { method: 'DELETE' })
     await loadDbScanners()
   }
 
@@ -198,9 +196,8 @@ function Scanner() {
     try {
       const device = await scannerService.requestBluetoothDevice()
       const sid    = device.id
-      await fetch(`${API_BASE_URL}/api/scanners`, {
+      await apiFetch('/api/scanners', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           scanner_id: sid,
           name:       device.name || 'Bluetooth Scanner',
@@ -233,9 +230,8 @@ function Scanner() {
 
     try {
       const payload = { barcode_id: barcodeValue.trim() }
-      const res = await fetch(`${API_BASE_URL}/api/scan`, {
+      const res = await apiFetch('/api/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
       const data = await res.json()
@@ -280,7 +276,7 @@ function Scanner() {
 
   const fetchRecentScans = async () => {
     try {
-      const res  = await fetch(`${API_BASE_URL}/api/scan-events?limit=10`)
+      const res  = await apiFetch('/api/scan-events?limit=10')
       const data = await res.json()
       setRecentScans(data)
     } catch (err) {
@@ -596,4 +592,4 @@ function Scanner() {
   )
 }
 
-export default Scanner
+export default Scanner;

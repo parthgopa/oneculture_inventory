@@ -20,6 +20,11 @@ alerts_collection = db['alerts']
 scanners_collection = db['scanners']
 users_collection = db['users']
 
+# Production workflow collections
+cloth_orders_collection = db['cloth_orders']
+work_ledger_collection = db['work_ledger']
+workers_collection = db['workers']
+
 # Constants
 STOCK_THRESHOLD = 10
 
@@ -45,6 +50,15 @@ def ensure_indexes():
     
     # Users
     users_collection.create_index('email', unique=True)
+
+    # Production workflow
+    cloth_orders_collection.create_index('order_id', unique=True)
+    cloth_orders_collection.create_index('status')
+    work_ledger_collection.create_index('order_id')
+    work_ledger_collection.create_index([('from_entity', ASCENDING), ('sku_name', ASCENDING)])
+    work_ledger_collection.create_index([('to_entity', ASCENDING), ('sku_name', ASCENDING)])
+    workers_collection.create_index('worker_id', unique=True)
+    workers_collection.create_index('name')
     
     print("[DB] Indexes ensured")
 

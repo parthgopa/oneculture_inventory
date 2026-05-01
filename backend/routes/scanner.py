@@ -90,7 +90,7 @@ def scan_barcode():
     """
     data = request.json
     barcode_id = data.get('barcode_id')
-    
+    print("Barcode ID:", barcode_id)
     if not barcode_id:
         return jsonify({'error': 'Barcode ID required'}), 400
     

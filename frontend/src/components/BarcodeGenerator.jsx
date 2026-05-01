@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { API_BASE_URL } from '../config'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { API_BASE_URL, apiFetch } from '../config'
 import { 
   MdQrCode2, 
   MdDownload, 
@@ -16,14 +16,17 @@ import ImageUpload from './ImageUpload'
 
 function BarcodeGenerator() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   // ── state ────────────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
     company_name: 'OneCulture',
-    sku_name: '',
-    mrp: '',
-    quantity: 1,
+    sku_name: searchParams.get('sku_name') || '',
+    mrp: searchParams.get('mrp') || '',
+    quantity: parseInt(searchParams.get('quantity') || '1'),
   })
+
+  const fromProduction = !!(searchParams.get('sku_name'))
   const [productImage, setProductImage] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState(null)
@@ -37,7 +40,7 @@ function BarcodeGenerator() {
 
   const fetchBatchHistory = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/barcode-batches`)
+      const response = await apiFetch('/api/barcode-batches')
       const data = await response.json()
       setBatchHistory(Array.isArray(data) ? data : [])
     } catch (error) {
@@ -67,7 +70,7 @@ function BarcodeGenerator() {
         product_image: productImage  // Include image if present
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/barcode-batches`, {
+      const response = await apiFetch('/api/barcode-batches', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,6 +128,16 @@ function BarcodeGenerator() {
         </h1>
         <p className="page-subtitle">Generate barcode batches for inventory items</p>
       </div>
+
+      {fromProduction && (
+        <div className="alert alert-success" style={{ marginBottom: 20 }}>
+          <MdCheckCircle size={20} />
+          <span>
+            Pre-filled from Production — <strong>{formData.sku_name}</strong> ({formData.quantity} pieces).
+            Review and click <strong>Generate Barcodes</strong>.
+          </span>
+        </div>
+      )}
 
       <div className="grid-2">
         <div className="card">
@@ -332,7 +345,7 @@ function BarcodeGenerator() {
                           <MdVisibility size={16} /> View
                         </button>
                         <button
-                          onClick={() => window.open(`${API_BASE_URL}/api/barcode-batches/${batch.batch_id}/download`, '_blank')}
+                          onClick={() => apiFetch(`/api/barcode-batches/${batch.batch_id}/download`).then(r => r.blob()).then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `barcode-batch-${batch.batch_id}.pdf`; a.click() })}
                           className="btn btn-outline"
                           style={{ padding: '6px 12px', fontSize: '12px' }}
                         >

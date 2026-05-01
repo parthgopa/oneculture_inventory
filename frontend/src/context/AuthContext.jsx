@@ -1,5 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { API_BASE_URL } from '../config'
+import { API_BASE_URL, apiFetch } from '../config'
+
+const SETTINGS_KEY = 'oc_settings'
+const loadAndCachePrefs = async (userId) => {
+  try {
+    const res = await apiFetch(`/api/auth/preferences?user_id=${userId}`)
+    if (res.ok) {
+      const prefs = await res.json()
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(prefs))
+      window.dispatchEvent(new CustomEvent('oc:settingsChanged', { detail: prefs }))
+    }
+  } catch { /* silent — localStorage cache remains valid */ }
+}
 
 const AuthContext = createContext(null)
 
@@ -31,6 +43,7 @@ export function AuthProvider({ children }) {
           
           if (data.valid) {
             setUser(data.user)
+            loadAndCachePrefs(data.user.id) // sync DB prefs into localStorage cache
           } else {
             // Invalid session, clear storage
             localStorage.removeItem(STORAGE_KEY)
@@ -60,10 +73,9 @@ export function AuthProvider({ children }) {
       throw new Error(data.error || 'Login failed')
     }
 
-    // Store in localStorage
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data.user))
     setUser(data.user)
-    
+    loadAndCachePrefs(data.user.id) // sync DB prefs into localStorage cache
     return data
   }
 

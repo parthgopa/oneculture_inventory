@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { API_BASE_URL } from '../config'
+import { apiFetch } from '../config'
 import { 
   MdArrowBack, 
   MdDownload, 
@@ -36,8 +36,8 @@ function BatchDetails() {
   const fetchBatchDetails = async () => {
     try {
       setLoading(true)
-      const response = await fetch(
-        `${API_BASE_URL}/api/barcode-batches/${batchId}?include_images=true`
+      const response = await apiFetch(
+        `/api/barcode-batches/${batchId}?include_images=true`
       )
       
       if (!response.ok) {
@@ -67,9 +67,8 @@ function BatchDetails() {
   const handleDownloadDocument = async (format = 'word') => {
     setDownloading(true)
     try {
-      const url = `${API_BASE_URL}/api/barcode-batches/${batchId}/document?columns=${columns}&show_details=${showDetails}&format=${format}`
-      
-      const response = await fetch(url)
+      const url = `/api/barcode-batches/${batchId}/document?columns=${columns}&show_details=${showDetails}&format=${format}`
+      const response = await apiFetch(url)
       if (!response.ok) throw new Error('Download failed')
       
       const blob = await response.blob()
@@ -89,13 +88,25 @@ function BatchDetails() {
   }
 
   const handlePrintPDF = () => {
-    // Open in new window for print to PDF
-    const url = `${API_BASE_URL}/api/barcode-batches/${batchId}/document?columns=${columns}&show_details=${showDetails}&format=pdf`
-    window.open(url, '_blank')
+    apiFetch(`/api/barcode-batches/${batchId}/document?columns=${columns}&show_details=${showDetails}&format=pdf`)
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${batchId}_barcodes.html`
+        a.click()
+      })
   }
 
   const handleDownloadZip = () => {
-    window.open(`${API_BASE_URL}/api/barcode-batches/${batchId}/download`, '_blank')
+    apiFetch(`/api/barcode-batches/${batchId}/download`)
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${batchId}_barcodes.zip`
+        a.click()
+      })
   }
 
   if (loading) {

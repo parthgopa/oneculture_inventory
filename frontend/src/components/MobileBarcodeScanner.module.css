@@ -1,0 +1,430 @@
+/* ═══════════════════════════════════════════════════════════
+   Mobile Barcode Scanner — Full-screen overlay
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Overlay & container ─────────────────────────────────── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;            /* dynamic viewport height (avoids iOS bar issues) */
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  background: #000;
+  position: relative;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, transparent 100%);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+}
+
+.iconBtn {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.iconBtn:active {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ── Viewfinder ──────────────────────────────────────────── */
+
+.viewfinder {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0a;
+  overflow: hidden;
+  min-height: 300px;
+}
+
+.video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+  display: block;
+  background: transparent;
+}
+
+/* ── Camera loading ──────────────────────────────────────── */
+
+.loadingCamera {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: #fff;
+  z-index: 12;
+  gap: 18px;
+}
+
+.loadingCamera p {
+  font-size: 15px;
+  margin: 0;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Scan overlay (frame + line + text) ──────────────────── */
+
+.scanOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.scanFrame {
+  width: 300px;
+  height: 130px;
+  position: relative;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.50);
+  border-radius: 14px;
+}
+
+/* Corner brackets — four spans */
+.cornerTL,
+.cornerTR,
+.cornerBL,
+.cornerBR {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-color: #818cf8;
+  border-style: solid;
+  pointer-events: none;
+}
+
+.cornerTL {
+  top: -2px; left: -2px;
+  border-width: 4px 0 0 4px;
+  border-top-left-radius: 14px;
+}
+
+.cornerTR {
+  top: -2px; right: -2px;
+  border-width: 4px 4px 0 0;
+  border-top-right-radius: 14px;
+}
+
+.cornerBL {
+  bottom: -2px; left: -2px;
+  border-width: 0 0 4px 4px;
+  border-bottom-left-radius: 14px;
+}
+
+.cornerBR {
+  bottom: -2px; right: -2px;
+  border-width: 0 4px 4px 0;
+  border-bottom-right-radius: 14px;
+}
+
+/* Scan line animation */
+.scanLine {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #818cf8 40%, #818cf8 60%, transparent 100%);
+  border-radius: 2px;
+  animation: moveLine 2.4s ease-in-out infinite;
+  opacity: 0.9;
+}
+
+@keyframes moveLine {
+  0%   { top: 8%;  opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 92%; opacity: 0; }
+}
+
+.scanText {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 15px;
+  font-weight: 500;
+  margin-top: 22px;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.scanHint {
+  color: rgba(255, 255, 255, 0.50);
+  font-size: 12px;
+  margin-top: 6px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Flash button ────────────────────────────────────────── */
+
+.flashBtn {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: #fff;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.flashBtn:active {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ── No camera state ─────────────────────────────────────── */
+
+.noCamera {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.45);
+  gap: 14px;
+  padding: 20px;
+  text-align: center;
+}
+
+.manualFallbackBtn {
+  margin-top: 8px;
+  padding: 10px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: transparent;
+  color: #818cf8;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.manualFallbackBtn:active {
+  background: rgba(129, 140, 248, 0.12);
+}
+
+/* ── Manual input section ────────────────────────────────── */
+
+.manualSection {
+  padding: 14px 16px;
+  background: #111118;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.manualLabel {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.manualForm {
+  display: flex;
+  gap: 10px;
+}
+
+.manualInput {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.manualInput::placeholder {
+  color: rgba(255, 255, 255, 0.30);
+}
+
+.manualInput:focus {
+  border-color: #818cf8;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.manualBtn {
+  padding: 12px 22px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.manualBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.manualBtn:not(:disabled):active {
+  background: #4f46e5;
+}
+
+/* ── Status message banner (inside viewfinder) ───────────── */
+
+.message {
+  position: absolute;
+  bottom: 24px;
+  left: 16px;
+  right: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 15;
+  animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.message.success {
+  background: rgba(16, 185, 129, 0.92);
+  color: #fff;
+}
+
+.message.error {
+  background: rgba(239, 68, 68, 0.92);
+  color: #fff;
+}
+
+/* ── Last-scan indicator ─────────────────────────────────── */
+
+.lastScan {
+  padding: 10px 16px;
+  background: rgba(99, 102, 241, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  text-align: center;
+  border-top: 1px solid rgba(99, 102, 241, 0.20);
+}
+
+/* ── Footer ──────────────────────────────────────────────── */
+
+.footer {
+  padding: 10px 16px;
+  background: #0a0a14;
+  text-align: center;
+}
+
+.footer p {
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* ── Responsive tweaks ───────────────────────────────────── */
+
+@media (max-width: 380px) {
+  .scanFrame {
+    width: 260px;
+    height: 110px;
+  }
+
+  .title {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 700px;
+  }
+
+  .scanFrame {
+    width: 400px;
+    height: 180px;
+  }
+}

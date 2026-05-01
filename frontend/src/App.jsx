@@ -12,6 +12,9 @@ import BarcodeGenerator from './components/BarcodeGenerator'
 import BatchDetails from './components/BatchDetails'
 import ProductDetails from './components/ProductDetails'
 import Alerts from './components/Alerts'
+import Settings from './components/Settings'
+import Production from './components/Production'
+import ProductionTracker from './components/ProductionTracker'
 import Login from './components/Login'
 import Signup from './components/Signup'
 import Sidebar from './components/Sidebar'
@@ -46,9 +49,12 @@ function MainLayout() {
           <Route path="/scanner" element={<Scanner />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/product/:skuName" element={<ProductDetails />} />
+          <Route path="/production" element={<Production />} />
+          <Route path="/tracker" element={<ProductionTracker />} />
           <Route path="/generator" element={<BarcodeGenerator />} />
           <Route path="/batch/:batchId" element={<BatchDetails />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </div>

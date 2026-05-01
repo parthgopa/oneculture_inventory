@@ -2,7 +2,7 @@
 Main Flask Application
 Modular backend with separate route files
 """
-from flask import Flask
+from flask import Flask, make_response
 from flask_cors import CORS
 import json
 from bson import ObjectId
@@ -15,10 +15,18 @@ from routes.barcodes import barcodes_bp
 from routes.alerts import alerts_bp
 from routes.dashboard import dashboard_bp
 from routes.auth import auth_bp
+from routes.production import production_bp
 
 app = Flask(__name__)
-CORS(app)
-
+# Explicit CORS configuration for local dev + ngrok tunneling
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        "allow_headers": ["Content-Type", "Authorization", "ngrok-skip-browser-warning"],
+        "supports_credentials": True
+    }
+})
 
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for MongoDB ObjectId and datetime"""
@@ -39,6 +47,7 @@ app.register_blueprint(barcodes_bp)
 app.register_blueprint(alerts_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(auth_bp)
+app.register_blueprint(production_bp)
 
 
 if __name__ == '__main__':
