@@ -6,8 +6,8 @@
   left: 0;
   right: 0;
   height: 60px;
-  background: white;
-  border-bottom: 1px solid var(--border-color);
+  background: #1c1c1c;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -25,12 +25,12 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  color: var(--text-primary);
+  color: #ffffff;
   transition: background 0.2s;
 }
 
 .menuBtn:hover {
-  background: var(--bg-secondary);
+  background: rgba(255,255,255,0.1);
 }
 
 .mobileLogo {
@@ -62,8 +62,8 @@
 .sidebar {
   width: 260px;
   height: 100vh;
-  background: white;
-  border-right: 1px solid var(--border-color);
+  background: #1c1c1c;
+  border-right: none;
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -80,14 +80,14 @@
 
 .sidebar.mobile.open {
   transform: translateX(0);
-  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
 }
 
 /* ─── Logo Section ──────────────────────────────────────────────────────────── */
 
 .logoSection {
-  padding: 24px 20px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 20px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
 .logo {
@@ -99,7 +99,7 @@
 .logoIcon {
   width: 40px;
   height: 40px;
-  background: linear-gradient(135deg, var(--primary-color), #818cf8);
+  background: var(--primary-color);
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -112,12 +112,12 @@
 .logoText {
   font-size: 18px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #ffffff;
 }
 
 .logoSubtext {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.45);
   margin-top: 4px;
   margin-left: 50px;
 }
@@ -136,7 +136,7 @@
   gap: 12px;
   padding: 12px 16px;
   border-radius: 10px;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.6);
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
@@ -145,24 +145,24 @@
 }
 
 .navItem:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: rgba(255,255,255,0.08);
+  color: #ffffff;
 }
 
 .navItem.active {
-  background: linear-gradient(135deg, var(--primary-color), #818cf8);
+  background: var(--primary-color);
   color: white;
 }
 
 .navItem.active:hover {
-  background: linear-gradient(135deg, var(--primary-color), #818cf8);
+  background: var(--primary-hover);
 }
 
 /* ─── User Section ──────────────────────────────────────────────────────────── */
 
 .userSection {
   padding: 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid rgba(255,255,255,0.08);
 }
 
 .userInfo {
@@ -176,7 +176,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary-color), #818cf8);
+  background: var(--primary-color);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -193,7 +193,7 @@
 .userName {
   font-weight: 600;
   font-size: 14px;
-  color: var(--text-primary);
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -201,7 +201,7 @@
 
 .userEmail {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.45);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -214,18 +214,18 @@
   justify-content: center;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--border-color);
+  border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
   background: transparent;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.55);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .logoutBtn:hover {
-  background: var(--danger-color);
-  border-color: var(--danger-color);
+  background: var(--primary-color);
+  border-color: var(--primary-color);
   color: white;
 }
 

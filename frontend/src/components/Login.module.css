@@ -24,22 +24,11 @@
   margin-bottom: 36px;
 }
 
-.logo {
-  width: 80px;
-  height: 80px;
-  background: linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%);
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 16px;
-  color: #ffffff;
-}
-
-.logoIcon {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -1px;
+.logoImg {
+  width: 160px;
+  height: auto;
+  display: block;
+  margin: 0 auto 12px;
 }
 
 .brandName {

@@ -15,6 +15,7 @@ import {
   MdFolderZip
 } from 'react-icons/md'
 import styles from './BatchDetails.module.css'
+import stickerStyles from './BatchSticker.module.css'
 
 function BatchDetails() {
   const { batchId } = useParams()
@@ -28,6 +29,8 @@ function BatchDetails() {
   const [columns, setColumns] = useState(3)
   const [showDetails, setShowDetails] = useState(true)
   const [downloading, setDownloading] = useState(false)
+  // Sticker: track editable barcode IDs per barcode
+  const [editedIds, setEditedIds] = useState({})
 
   useEffect(() => {
     fetchBatchDetails()
@@ -63,6 +66,125 @@ function BatchDetails() {
     }
     return rows
   }, [batchData, columns])
+
+  const handlePrintStickers = () => {
+    if (!batchData) return
+    const { batch_info, barcodes } = batchData
+    const win = window.open('', '_blank', 'width=900,height=700')
+    const stickers = barcodes.map(bc => {
+      const displayId = editedIds[bc.barcode_id] ?? bc.barcode_id
+      return `
+        <div class="sticker">
+          <div class="sticker-left">
+            <div class="sticker-row"><span class="sticker-label">SKU</span><span class="sticker-value">${batch_info.sku_name}</span></div>
+            ${batch_info.size ? `<div class="sticker-row"><span class="sticker-label">Size</span><span class="sticker-value sticker-size">${batch_info.size}</span></div>` : ''}
+            <div class="sticker-row"><span class="sticker-label">MRP</span><span class="sticker-value sticker-mrp">&#8377;${parseFloat(batch_info.mrp).toFixed(2)}</span></div>
+            <div class="sticker-barcode">
+              <img src="data:image/png;base64,${bc.image_base64}" alt="barcode" />
+              ${showDetails ? `<div class="sticker-code">${displayId}</div>` : ''}
+            </div>
+          </div>
+          <div class="sticker-logo">
+            <img src="/logo.webp" alt="OneCulture" />
+          </div>
+        </div>`
+    }).join('')
+    win.document.write(`<!DOCTYPE html>
+<html><head><title>Print Stickers — ${batch_info.sku_name}</title>
+<style>
+  @page { size: auto; margin: 6mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #fff; }
+  .page { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }
+  .sticker {
+    width: 220px; height: 110px;
+    border: 1.5px solid #222;
+    border-radius: 6px;
+    display: flex;
+    overflow: hidden;
+    background: #fff;
+    page-break-inside: avoid;
+  }
+  .sticker-left {
+    flex: 1;
+    padding: 6px 6px 4px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: space-between;
+  }
+  .sticker-row {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    line-height: 1.2;
+  }
+  .sticker-label {
+    font-size: 7px;
+    font-weight: 700;
+    color: #555;
+    text-transform: uppercase;
+    min-width: 24px;
+  }
+  .sticker-value {
+    font-size: 9px;
+    font-weight: 600;
+    color: #111;
+  }
+  .sticker-size {
+    font-size: 13px;
+    font-weight: 400;
+    color: #111;
+  }
+  .sticker-mrp {
+    font-size: 12px;
+    font-weight: 400;
+    color: #111;
+  }
+  .sticker-barcode {
+    text-align: center;
+    margin-top: 2px;
+  }
+  .sticker-barcode img {
+    width: 100%;
+    max-height: 58px;
+    object-fit: contain;
+    display: block;
+  }
+  .sticker-code {
+    font-family: Consolas, monospace;
+    font-size: 6.5px;
+    color: #333;
+    margin-top: 1px;
+    word-break: break-all;
+    text-align: center;
+  }
+  .sticker-logo {
+    width: 34px;
+    background: #1c1c1c;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 2px;
+    flex-shrink: 0;
+  }
+  .sticker-logo img {
+    width: 100%;
+    object-fit: contain;
+    transform: rotate(90deg);
+    transform-origin: center center;
+    max-height: 28px;
+  }
+  @media print {
+    body { margin: 0; }
+  }
+</style>
+</head><body>
+<div class="page">${stickers}</div>
+<script>window.onload=()=>{window.print();window.close();}<\/script>
+</body></html>`)
+    win.document.close()
+  }
 
   const handleDownloadDocument = async (format = 'word') => {
     setDownloading(true)
@@ -151,6 +273,7 @@ function BatchDetails() {
           <div className={styles.headerMeta}>
             <span><strong>Batch:</strong> {batchId}</span>
             <span><strong>Company:</strong> {batch_info.company_name}</span>
+            {batch_info.size && <span><strong>Size:</strong> {batch_info.size}</span>}
             <span><strong>MRP:</strong> ₹{batch_info.mrp?.toFixed(2)}</span>
             <span><strong>Quantity:</strong> {batch_info.quantity}</span>
           </div>
@@ -195,7 +318,7 @@ function BatchDetails() {
               </button>
             </div>
 
-            <div className={styles.downloadSection}>
+            {/* <div className={styles.downloadSection}>
               <h4>Download Options</h4>
               
               <div className={styles.downloadGrid}>
@@ -227,12 +350,12 @@ function BatchDetails() {
                   <span className={styles.downloadLabel}>Images</span>
                   <span className={styles.downloadExt}>.zip</span>
                 </button>
-              </div>
+              </div> 
               
               <p className={styles.downloadHint}>
                 {columns} barcode{columns > 1 ? 's' : ''} per row • {showDetails ? 'With' : 'Without'} IDs
               </p>
-            </div>
+            </div>*/}
           </div>
 
           {/* Stats */}
@@ -253,60 +376,57 @@ function BatchDetails() {
           </div>
         </div>
 
-        {/* Right: Live Preview */}
+        {/* Right: Sticker Preview */}
         <div className={styles.previewPanel}>
           <div className={styles.previewHeader}>
-            <h3><MdPrint size={20} /> Live Preview</h3>
-            <span className={styles.previewHint}>
-              This is how your document will look
-            </span>
+            <h3><MdPrint size={20} /> Sticker Preview</h3>
+            <button
+              onClick={handlePrintStickers}
+              className="btn btn-primary"
+              style={{ padding: '6px 14px', fontSize: '13px' }}
+            >
+              <MdPrint size={16} /> Print Stickers
+            </button>
           </div>
-          
-          <div className={styles.previewContainer}>
-            <div className={styles.previewPage}>
-              {/* Document Header */}
-              <div className={styles.docHeader}>
-                <h2>{batch_info.sku_name}</h2>
-                <p>
-                  <strong>Company:</strong> {batch_info.company_name} | 
-                  <strong> MRP:</strong> ₹{batch_info.mrp?.toFixed(2)}
-                </p>
-                <p>
-                  <strong>Batch:</strong> {batchId} | 
-                  <strong> Total:</strong> {barcodes.length} barcodes
-                </p>
-              </div>
 
-              {/* Barcode Grid */}
-              <div className={styles.barcodeGrid}>
-                {previewRows.map((row, rowIndex) => (
-                  <div 
-                    key={rowIndex} 
-                    className={styles.barcodeRow}
-                    style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}
-                  >
-                    {row.map(barcode => (
-                      <div key={barcode.barcode_id} className={styles.barcodeCell}>
-                        <img 
-                          src={`data:image/png;base64,${barcode.image_base64}`}
-                          alt={barcode.barcode_id}
-                        />
-                        {showDetails && (
-                          <div className={styles.barcodeId}>
-                            {barcode.barcode_id}
-                          </div>
-                        )}
+          <div className={styles.previewContainer}>
+            <div className={stickerStyles.stickerGrid}>
+              {barcodes.map(bc => (
+                <div key={bc.barcode_id} className={stickerStyles.sticker}>
+                  <div className={stickerStyles.stickerLeft}>
+                    <div className={stickerStyles.stickerRow}>
+                      <span className={stickerStyles.stickerLabel}>SKU</span>
+                      <span className={stickerStyles.stickerValue}>{batch_info.sku_name}</span>
+                    </div>
+                    {batch_info.size && (
+                      <div className={stickerStyles.stickerRow}>
+                        <span className={stickerStyles.stickerLabel}>Size</span>
+                        <span className={`${stickerStyles.stickerValue} ${stickerStyles.stickerSize}`}>{batch_info.size}</span>
                       </div>
-                    ))}
-                    {/* Fill empty cells */}
-                    {row.length < columns && 
-                      Array(columns - row.length).fill(0).map((_, i) => (
-                        <div key={`empty-${i}`} className={styles.barcodeCell}></div>
-                      ))
-                    }
+                    )}
+                    <div className={stickerStyles.stickerRow}>
+                      <span className={stickerStyles.stickerLabel}>MRP</span>
+                      <span className={`${stickerStyles.stickerValue} ${stickerStyles.stickerMrp}`}>₹{batch_info.mrp?.toFixed(2)}</span>
+                    </div>
+                    <div className={stickerStyles.stickerBarcode}>
+                      <img
+                        src={`data:image/png;base64,${bc.image_base64}`}
+                        alt={bc.barcode_id}
+                      />
+                      {showDetails && (
+                        <input
+                          className={stickerStyles.stickerCode}
+                          value={editedIds[bc.barcode_id] ?? bc.barcode_id}
+                          onChange={e => setEditedIds(prev => ({ ...prev, [bc.barcode_id]: e.target.value }))}
+                        />
+                      )}
+                    </div>
                   </div>
-                ))}
-              </div>
+                  <div className={stickerStyles.stickerLogo}>
+                    <img src="/logo.webp" alt="OneCulture" />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -18,7 +18,7 @@
 }
 
 .errorState h2 {
-  color: #dc2626;
+  color: var(--danger-color);
   margin: 0;
 }
 
@@ -28,7 +28,7 @@
   align-items: flex-start;
   gap: 20px;
   padding: 20px 24px;
-  background: linear-gradient(135deg, #3f51b5 0%, #1a237e 100%);
+  background: linear-gradient(135deg, #1c1c1c 0%, #3a3a3a 100%);
   color: white;
   border-radius: 12px;
   margin-bottom: 24px;
@@ -112,7 +112,7 @@
   margin: 0 0 20px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .settingGroup {
@@ -146,13 +146,13 @@
 }
 
 .columnBtn:hover {
-  border-color: #3f51b5;
-  color: #3f51b5;
+  border-color: #e8490d;
+  color: #e8490d;
 }
 
 .columnBtn.active {
-  background: #3f51b5;
-  border-color: #3f51b5;
+  background: #e8490d;
+  border-color: #e8490d;
   color: white;
 }
 
@@ -171,7 +171,7 @@
 }
 
 .toggleBtn:hover {
-  border-color: #3f51b5;
+  border-color: #e8490d;
 }
 
 .downloadSection {
@@ -208,8 +208,8 @@
 }
 
 .downloadCard:hover {
-  border-color: #3f51b5;
-  background: #f5f7ff;
+  border-color: #e8490d;
+  background: #fdf2ef;
   transform: translateY(-2px);
 }
 
@@ -220,7 +220,7 @@
 }
 
 .downloadIcon {
-  color: #2563eb;
+  color: #e8490d;
 }
 
 .downloadIconPdf {
@@ -275,7 +275,7 @@
 
 .statItem strong {
   font-size: 18px;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 /* Preview Panel */
@@ -330,14 +330,14 @@
   text-align: center;
   padding-bottom: 16px;
   margin-bottom: 20px;
-  border-bottom: 2px solid #1f2937;
+  border-bottom: 2px solid #1c1c1c;
 }
 
 .docHeader h2 {
   margin: 0 0 8px 0;
   font-size: 18px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .docHeader p {
@@ -394,7 +394,7 @@
   margin: 0 0 16px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .tableContainer {
@@ -440,7 +440,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #16a34a;
+  color: var(--success-color);
   font-size: 13px;
 }
 

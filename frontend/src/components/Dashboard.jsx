@@ -134,7 +134,7 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="stat-card">
+        {/* <div className="stat-card">
           <div className="stat-header">
             <div>
               <div className="stat-value" style={{ color: 'var(--success-color)' }}>
@@ -149,9 +149,9 @@ function Dashboard() {
           <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
             All-time incoming stock
           </div>
-        </div>
+        </div> */}
 
-        <div className="stat-card">
+        {/* <div className="stat-card">
           <div className="stat-header">
             <div>
               <div className="stat-value" style={{ color: 'var(--danger-color)' }}>
@@ -166,11 +166,11 @@ function Dashboard() {
           <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
             All-time outgoing stock
           </div>
-        </div>
+        </div> */}
       </div>
 
       {/* ── Stock Alerts ──────────────────────────────────────────────────────── */}
-      {(stats?.low_stock_count > 0 || stats?.out_of_stock_count > 0) && (
+      {/* {(stats?.low_stock_count > 0 || stats?.out_of_stock_count > 0) && (
         <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
           {stats?.low_stock_count > 0 && (
             <div className="stat-card" style={{ borderLeft: '4px solid var(--warning-color)' }}>
@@ -210,7 +210,7 @@ function Dashboard() {
             </div>
           )}
         </div>
-      )}
+      )} */}
 
       {/* ── Analytics ─────────────────────────────────────────────────────────── */}
       <div className="grid-2">

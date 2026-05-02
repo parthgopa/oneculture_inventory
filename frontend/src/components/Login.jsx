@@ -52,10 +52,7 @@ function Login() {
     <div className={styles.container}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <div className={styles.logo}>
-            <span className={styles.logoIcon}>OC</span>
-          </div>
-          <h1 className={styles.brandName}>OneCulture</h1>
+          <img src="/logo.webp" alt="OneCulture" className={styles.logoImg} />
           <p className={styles.brandTagline}>Inventory Management System</p>
           <h2 className={styles.title}>Welcome Back</h2>
           <p className={styles.subtitle}>Sign in to your account</p>

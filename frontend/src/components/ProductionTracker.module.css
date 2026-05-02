@@ -1,8 +1,8 @@
 /* ── Hero ──────────────────────────────────────────────────────────────────── */
 .hero {
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4c1d95 80%, #6d28d9 100%);
+  background: linear-gradient(135deg, #1c1c1c 0%, #2e2e2e 40%, #3a3a3a 80%, #4a4a4a 100%);
   border-radius: 20px;
-  padding: 40px 48px;
+  padding: 24px 18px;
   margin-bottom: 28px;
   position: relative;
   overflow: hidden;
@@ -114,7 +114,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 20px 28px;
-  background: linear-gradient(135deg, #0f172a, #1e293b);
+  background: linear-gradient(135deg, #1c1c1c, #333333);
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -163,7 +163,7 @@
 
 .progressFill {
   height: 100%;
-  background: linear-gradient(90deg, #6366f1, #10b981);
+  background: linear-gradient(90deg, #e8490d, #10b981);
   transition: width 0.5s ease;
   border-radius: 0 2px 2px 0;
 }
@@ -257,7 +257,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #f59e0b, #f97316);
+  background: linear-gradient(135deg, #e8490d, #c93d0a);
   color: white;
   display: flex;
   align-items: center;
@@ -293,7 +293,7 @@
 
 .shortfall {
   font-size: 11px;
-  color: #ef4444;
+  color: var(--danger-color);
   font-weight: 600;
 }
 
@@ -330,7 +330,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: linear-gradient(135deg, #059669, #10b981);
+  background: linear-gradient(135deg, #e8490d, #c93d0a);
   color: white;
   border: none;
   border-radius: 8px;

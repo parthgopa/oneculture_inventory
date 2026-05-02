@@ -284,11 +284,11 @@ function Inventory() {
                   <th style={{ width: 80 }}>Image</th>
                   <th>Product (SKU)</th>
                   <th>MRP</th>
-                  <th>Barcodes</th>
+                  {/* <th>Barcodes</th> */}
                   <th>Stock In</th>
                   <th>Stock Out</th>
                   <th>Current Stock</th>
-                  <th>Status</th>
+                  {/* <th>Status</th> */}
                   <th style={{ width: 100 }}>Actions</th>
                 </tr>
               </thead>
@@ -317,16 +317,16 @@ function Inventory() {
                       </td>
                       <td><strong>{item.sku_name}</strong></td>
                       <td>₹{(item.mrp || 0).toFixed(2)}</td>
-                      <td><span className="badge badge-primary">{item.barcode_count}</span></td>
+                      {/* <td><span className="badge badge-primary">{item.barcode_count}</span></td> */}
                       <td><span className={styles.stockIn}>+{item.total_in}</span></td>
                       <td><span className={styles.stockOut}>-{item.total_out}</span></td>
                       <td><span className={styles.stockCell}>{item.total_stock}</span></td>
-                      <td>
+                      {/* <td>
                         <div className="stock-level">
                           <span className={`stock-indicator ${status.indicator}`}></span>
                           <span className={`badge badge-${status.class}`}>{status.label}</span>
                         </div>
-                      </td>
+                      </td> */}
                       <td>
                         <button
                           onClick={() => handleViewDetails(item)}

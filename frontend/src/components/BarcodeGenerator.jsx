@@ -20,8 +20,9 @@ function BarcodeGenerator() {
 
   // ── state ────────────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
-    company_name: 'OneCulture',
+    company_name: 'ONėCULTURE',
     sku_name: searchParams.get('sku_name') || '',
+    size: searchParams.get('size') || '',
     mrp: searchParams.get('mrp') || '',
     quantity: parseInt(searchParams.get('quantity') || '1'),
   })
@@ -87,8 +88,9 @@ function BarcodeGenerator() {
         })
         setGeneratedBatch(data)
         setFormData({
-          company_name: 'OneCulture',
+          company_name: 'ONėCULTURE',
           sku_name: '',
+          size: '',
           mrp: '',
           quantity: 1,
         })
@@ -180,6 +182,18 @@ function BarcodeGenerator() {
                 value={formData.sku_name}
                 onChange={handleInputChange}
                 required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Size</label>
+              <input
+                type="text"
+                name="size"
+                className="form-input"
+                placeholder="e.g. S, M, L, XL, 30, 32..."
+                value={formData.size}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -316,7 +330,7 @@ function BarcodeGenerator() {
               <thead>
                 <tr>
                   <th>Batch ID</th>
-                  <th>Company</th>
+                  {/* <th>Company</th> */}
                   <th>SKU</th>
                   <th>MRP</th>
                   <th>Quantity</th>
@@ -328,7 +342,7 @@ function BarcodeGenerator() {
                 {batchHistory.map((batch) => (
                   <tr key={batch.batch_id}>
                     <td><code>{batch.batch_id}</code></td>
-                    <td>{batch.company_name}</td>
+                    {/* <td>{batch.company_name}</td> */}
                     <td><strong>{batch.sku_name}</strong></td>
                     <td>₹{batch.mrp?.toFixed(2)}</td>
                     <td>
@@ -344,13 +358,13 @@ function BarcodeGenerator() {
                         >
                           <MdVisibility size={16} /> View
                         </button>
-                        <button
+                        {/* <button
                           onClick={() => apiFetch(`/api/barcode-batches/${batch.batch_id}/download`).then(r => r.blob()).then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `barcode-batch-${batch.batch_id}.pdf`; a.click() })}
                           className="btn btn-outline"
                           style={{ padding: '6px 12px', fontSize: '12px' }}
                         >
                           <MdDownload size={16} />
-                        </button>
+                        </button> */}
                       </div>
                     </td>
                   </tr>

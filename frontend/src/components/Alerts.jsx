@@ -110,9 +110,9 @@ function Alerts() {
                 <tr>
                   <th>Status</th>
                   <th>SKU Name</th>
-                  <th>Company</th>
+                  {/* <th>Company</th> */}
                   <th>Current Stock</th>
-                  <th>Threshold</th>
+                  <th>Limit</th>
                   <th>Shortage</th>
                 </tr>
               </thead>
@@ -131,7 +131,7 @@ function Alerts() {
                       )}
                     </td>
                     <td><strong>{item.sku_name}</strong></td>
-                    <td>{item.company_name}</td>
+                    {/* <td>{item.company_name}</td> */}
                     <td>
                       <strong style={{ color: item.total_stock === 0 ? 'var(--danger-color)' : 'var(--warning-color)', fontSize: '15px' }}>
                         {item.total_stock}

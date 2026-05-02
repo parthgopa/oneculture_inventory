@@ -94,8 +94,7 @@ function Sidebar() {
           </button>
           
           <div className={styles.mobileLogo}>
-            <span className={styles.logoIcon}>OC</span>
-            <span className={styles.logoText}>OneCulture</span>
+            <img src="/logo.webp" alt="OneCulture" style={{ height: '32px', objectFit: 'contain' }} />
           </div>
           
           <div style={{ width: 40 }} /> {/* Spacer for centering */}
@@ -111,11 +110,7 @@ function Sidebar() {
       <aside className={`${styles.sidebar} ${isMobile ? styles.mobile : ''} ${isOpen ? styles.open : ''}`}>
         {/* Logo */}
         <div className={styles.logoSection}>
-          <div className={styles.logo}>
-            <span className={styles.logoIcon}>OC</span>
-            <span className={styles.logoText}>OneCulture</span>
-          </div>
-          <div className={styles.logoSubtext}>Inventory Management</div>
+          <img src="/logo.webp" alt="OneCulture" style={{ maxWidth: '70%', maxHeight: '64px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
         </div>
 
         {/* Navigation */}

@@ -24,22 +24,11 @@
   margin-bottom: 32px;
 }
 
-.logo {
-  width: 72px;
-  height: 72px;
-  background: linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%);
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 14px;
-  color: #ffffff;
-}
-
-.logoIcon {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -1px;
+.logoImg {
+  width: 160px;
+  height: auto;
+  display: block;
+  margin: 0 auto 12px;
 }
 
 .brandName {
@@ -278,9 +267,8 @@
     font-size: 22px;
   }
   
-  .logo {
-    width: 60px;
-    height: 60px;
+  .logoImg {
+    width: 120px;
   }
   
   .requirements {

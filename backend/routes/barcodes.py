@@ -45,6 +45,7 @@ def create_barcode_batch():
     company_name = data.get('company_name')
     sku_name = data.get('sku_name')
     mrp = data.get('mrp')
+    size = data.get('size', '')
     quantity = int(data.get('quantity', 1))
     product_image = data.get('product_image')  # Base64 image (optional)
     
@@ -64,6 +65,7 @@ def create_barcode_batch():
             'company_name': company_name,
             'sku_name': sku_name,
             'mrp': float(mrp),
+            'size': size,
             'batch_id': batch_id,
             'created_at': datetime.now()
         }
@@ -189,6 +191,7 @@ def get_batch_details(batch_id):
             'company_name': barcodes[0]['company_name'],
             'sku_name': barcodes[0]['sku_name'],
             'mrp': barcodes[0]['mrp'],
+            'size': barcodes[0].get('size', ''),
             'created_at': barcodes[0]['created_at'].isoformat() if barcodes[0].get('created_at') else None,
             'quantity': len(barcodes)
         }
