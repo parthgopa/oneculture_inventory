@@ -27,7 +27,7 @@ function BatchDetails() {
   
   // Document settings
   const [columns, setColumns] = useState(3)
-  const [showDetails, setShowDetails] = useState(true)
+  const [showDetails, setShowDetails] = useState(false)
   const [downloading, setDownloading] = useState(false)
   // Sticker: track editable barcode IDs per barcode
   const [editedIds, setEditedIds] = useState({})
@@ -67,120 +67,180 @@ function BatchDetails() {
     return rows
   }, [batchData, columns])
 
-  const handlePrintStickers = () => {
+  const handlePrintStickers = async () => {
     if (!batchData) return
     const { batch_info, barcodes } = batchData
+
+    // Fetch logo as base64 so it embeds correctly in the popup (relative URLs don't resolve in blank windows)
+    let logoDataUrl = ''
+    try {
+      const logoRes = await fetch('/logo.webp')
+      const blob = await logoRes.blob()
+      logoDataUrl = await new Promise(resolve => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result)
+        reader.readAsDataURL(blob)
+      })
+    } catch (_) {}
+
     const win = window.open('', '_blank', 'width=900,height=700')
+    const sideInfo = [batch_info.size, batch_info.color].filter(Boolean).join(' · ')
     const stickers = barcodes.map(bc => {
       const displayId = editedIds[bc.barcode_id] ?? bc.barcode_id
       return `
-        <div class="sticker">
-          <div class="sticker-left">
-            <div class="sticker-row"><span class="sticker-label">SKU</span><span class="sticker-value">${batch_info.sku_name}</span></div>
-            ${batch_info.size ? `<div class="sticker-row"><span class="sticker-label">Size</span><span class="sticker-value sticker-size">${batch_info.size}</span></div>` : ''}
-            <div class="sticker-row"><span class="sticker-label">MRP</span><span class="sticker-value sticker-mrp">&#8377;${parseFloat(batch_info.mrp).toFixed(2)}</span></div>
-            <div class="sticker-barcode">
-              <img src="data:image/png;base64,${bc.image_base64}" alt="barcode" />
-              ${showDetails ? `<div class="sticker-code">${displayId}</div>` : ''}
+        <div class="sticker-page">
+          <div class="sticker">
+            <div class="sticker-left">
+              <div class="sticker-row">
+                <span class="sticker-label">SKU</span>
+                <span class="sticker-value">${batch_info.sku_name}</span>
+              </div>
+              <div class="sticker-row">
+                <span class="sticker-label">MRP</span>
+                <span class="sticker-value sticker-mrp">&#8377;${parseFloat(batch_info.mrp).toFixed(2)}</span>
+              </div>
+              <div class="sticker-barcode">
+                <img src="data:image/png;base64,${bc.image_base64}" alt="barcode" />
+                ${showDetails ? `<div class="sticker-code">${displayId}</div>` : ''}
+              </div>
             </div>
-          </div>
-          <div class="sticker-logo">
-            <img src="/logo.webp" alt="OneCulture" />
+            <div class="sticker-right">
+              ${sideInfo ? `<div class="sticker-side-info">${sideInfo}</div>` : ''}
+              ${logoDataUrl ? `<img class="sticker-logo-img" src="${logoDataUrl}" alt="OneCulture" />` : ''}
+            </div>
           </div>
         </div>`
     }).join('')
     win.document.write(`<!DOCTYPE html>
-<html><head><title>Print Stickers — ${batch_info.sku_name}</title>
+<html><head><title>Print Stickers \u2014 ${batch_info.sku_name}</title>
 <style>
-  @page { size: auto; margin: 6mm; }
+  @page {
+    size: 1.9in 2.1in;
+    margin: 0;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; background: #fff; }
-  .page { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }
-  .sticker {
-    width: 220px; height: 110px;
-    border: 1.5px solid #222;
-    border-radius: 6px;
-    display: flex;
-    overflow: hidden;
-    background: #fff;
-    page-break-inside: avoid;
-  }
-  .sticker-left {
-    flex: 1;
-    padding: 6px 6px 4px 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    justify-content: space-between;
-  }
-  .sticker-row {
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    line-height: 1.2;
-  }
-  .sticker-label {
-    font-size: 7px;
-    font-weight: 700;
-    color: #555;
-    text-transform: uppercase;
-    min-width: 24px;
-  }
-  .sticker-value {
-    font-size: 9px;
-    font-weight: 600;
-    color: #111;
-  }
-  .sticker-size {
-    font-size: 13px;
-    font-weight: 400;
-    color: #111;
-  }
-  .sticker-mrp {
-    font-size: 12px;
-    font-weight: 400;
-    color: #111;
-  }
-  .sticker-barcode {
-    text-align: center;
-    margin-top: 2px;
-  }
-  .sticker-barcode img {
-    width: 100%;
-    max-height: 58px;
-    object-fit: contain;
-    display: block;
-  }
-  .sticker-code {
-    font-family: Consolas, monospace;
-    font-size: 6.5px;
-    color: #333;
-    margin-top: 1px;
-    word-break: break-all;
-    text-align: center;
-  }
-  .sticker-logo {
-    width: 34px;
-    background: #1c1c1c;
+
+  .sticker-page {
+    width: 1.9in;
+    height: 2.1in;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 2px;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .sticker {
+    width: 1.82in;
+    height: 2.0in;
+    border: 1.5pt solid #222;
+    border-radius: 5pt;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  .sticker-left {
+    flex: 1;
+    padding: 7pt 5pt 5pt 7pt;
+    display: flex;
+    flex-direction: column;
+    gap: 3pt;
+    min-width: 0;
+  }
+
+  .sticker-row {
+    display: flex;
+    align-items: baseline;
+    gap: 3pt;
+    line-height: 1.3;
+  }
+
+  .sticker-label {
+    font-size: 6pt;
+    font-weight: 700;
+    color: #666;
+    text-transform: uppercase;
+    min-width: 18pt;
     flex-shrink: 0;
   }
-  .sticker-logo img {
-    width: 100%;
-    object-fit: contain;
-    transform: rotate(90deg);
-    transform-origin: center center;
-    max-height: 28px;
+
+  .sticker-value {
+    font-size: 8pt;
+    font-weight: 600;
+    color: #111;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  @media print {
-    body { margin: 0; }
+
+  .sticker-mrp {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #111;
+  }
+
+  .sticker-barcode {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    margin-top: 4pt;
+  }
+
+  .sticker-barcode img {
+    width: 100%;
+    height: auto;
+    display: block;
+    max-height: 0.9in;
+    object-fit: contain;
+  }
+
+  .sticker-code {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 5.5pt;
+    color: #444;
+    margin-top: 1.5pt;
+    text-align: center;
+    word-break: break-all;
+  }
+
+  .sticker-right {
+    width: 0.28in;
+    background: #1c1c1c;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7pt 3pt;
+    flex-shrink: 0;
+  }
+
+  .sticker-side-info {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    color: #fff;
+    font-size: 6pt;
+    font-weight: 500;
+    letter-spacing: 0.3pt;
+    white-space: nowrap;
+    overflow: hidden;
+    max-height: 1.2in;
+  }
+
+  .sticker-logo-img {
+    width: 0.24in;
+    height: 0.24in;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
   }
 </style>
 </head><body>
-<div class="page">${stickers}</div>
+${stickers}
 <script>window.onload=()=>{window.print();window.close();}<\/script>
 </body></html>`)
     win.document.close()
@@ -393,17 +453,12 @@ function BatchDetails() {
             <div className={stickerStyles.stickerGrid}>
               {barcodes.map(bc => (
                 <div key={bc.barcode_id} className={stickerStyles.sticker}>
+                  {/* Left: SKU, MRP, barcode */}
                   <div className={stickerStyles.stickerLeft}>
                     <div className={stickerStyles.stickerRow}>
                       <span className={stickerStyles.stickerLabel}>SKU</span>
                       <span className={stickerStyles.stickerValue}>{batch_info.sku_name}</span>
                     </div>
-                    {batch_info.size && (
-                      <div className={stickerStyles.stickerRow}>
-                        <span className={stickerStyles.stickerLabel}>Size</span>
-                        <span className={`${stickerStyles.stickerValue} ${stickerStyles.stickerSize}`}>{batch_info.size}</span>
-                      </div>
-                    )}
                     <div className={stickerStyles.stickerRow}>
                       <span className={stickerStyles.stickerLabel}>MRP</span>
                       <span className={`${stickerStyles.stickerValue} ${stickerStyles.stickerMrp}`}>₹{batch_info.mrp?.toFixed(2)}</span>
@@ -422,7 +477,14 @@ function BatchDetails() {
                       )}
                     </div>
                   </div>
+                  {/* Right strip: size + color + logo */}
                   <div className={stickerStyles.stickerLogo}>
+                    {(batch_info.size || batch_info.color) && (
+                      <div className={stickerStyles.stickerSideInfo}>
+                        {batch_info.size && <span>{batch_info.size}</span>}
+                        {batch_info.color && <span>{batch_info.color}</span>}
+                      </div>
+                    )}
                     <img src="/logo.webp" alt="OneCulture" />
                   </div>
                 </div>

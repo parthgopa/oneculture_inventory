@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { MdAdd, MdDelete, MdPeople, MdWarning, MdVisibility,
-         MdCheckCircle, MdSchedule, MdHistory } from 'react-icons/md'
+import { MdAdd, MdDelete, MdEdit, MdPeople, MdWarning, MdVisibility,
+         MdCheckCircle, MdSchedule, MdHistory, MdBuild, MdSwapHoriz } from 'react-icons/md'
 import { apiFetch } from '../../config'
 import { Badge, Modal, FormRow, WORK_TYPES_WORKER, STAGE_LABELS, STAGE_COLORS } from './helpers'
 import styles from './WorkersTab.module.css'
@@ -118,13 +118,36 @@ function WorkerDetailModal({ worker, onClose }) {
 }
 
 function WorkersTab({ workers, workerStock, onRefresh }) {
-  const [modal, setModal]         = useState(null)
+  const [modal, setModal]           = useState(null)
   const [selectedWorker, setSelectedWorker] = useState(null)
+  const [editingWorker, setEditingWorker]   = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError]         = useState(null)
-  const [form, setForm]           = useState({ name: '', phone: '', work_type: 'Job Work' })
+  const [error, setError]           = useState(null)
+  const [form, setForm]             = useState({ name: '', phone: '', work_type: 'Job Work' })
+  const [editForm, setEditForm]     = useState({ name: '', phone: '', work_type: 'Job Work' })
 
-  const close = () => { setModal(null); setError(null) }
+  const close = () => { setModal(null); setError(null); setEditingWorker(null) }
+
+  const openEdit = (w) => {
+    setEditingWorker(w)
+    setEditForm({ name: w.name, phone: w.phone || '', work_type: w.work_type || 'Job Work' })
+    setError(null)
+    setModal('edit')
+  }
+
+  const handleEdit = async () => {
+    setSubmitting(true); setError(null)
+    try {
+      const res = await apiFetch(`/api/production/workers/${editingWorker.worker_id}`, {
+        method: 'PUT',
+        body: JSON.stringify(editForm)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      close(); onRefresh()
+    } catch (e) { setError(e.message) }
+    finally { setSubmitting(false) }
+  }
 
   const handleAdd = async () => {
     setSubmitting(true); setError(null)
@@ -147,6 +170,52 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
     onRefresh()
   }
 
+  const jobWorkers        = workers.filter(w => !['Additional Work', 'Diamond Work', 'Jari Work'].includes(w.work_type))
+  const additionalWorkers = workers.filter(w => ['Additional Work', 'Diamond Work', 'Jari Work'].includes(w.work_type))
+
+  const renderCard = (w) => {
+    const holding = workerStock.filter(ws => ws.worker_name === w.name)
+    const total   = holding.reduce((s, h) => s + h.quantity, 0)
+    return (
+      <div key={w.worker_id} className={styles.workerCard}>
+        <div className={styles.cardTop}>
+          <div className={styles.avatar}>{w.name[0].toUpperCase()}</div>
+          <div style={{ flex: 1 }}>
+            <div className={styles.workerName}>{w.name}</div>
+            {w.phone && <div className={styles.workerPhone}>{w.phone}</div>}
+          </div>
+          <button onClick={() => setSelectedWorker(w)} className={styles.viewBtn} title="View Details">
+            <MdVisibility size={17} />
+          </button>
+          <button onClick={() => openEdit(w)} className={styles.editBtn} title="Edit Worker">
+            <MdEdit size={17} />
+          </button>
+          <button onClick={() => handleDelete(w.worker_id)} className={styles.deleteBtn} title="Remove">
+            <MdDelete size={17} />
+          </button>
+        </div>
+        <div className={styles.cardBody}>
+          <Badge text={w.work_type} color="#6366f1" />
+          <div className={styles.holdingBadge}>
+            {total > 0
+              ? <span className="badge badge-warning">{total} pieces</span>
+              : <span className={styles.noHolding}>No current holding</span>}
+          </div>
+        </div>
+        {total > 0 && (
+          <div className={styles.skuList}>
+            {holding.map((h, i) => (
+              <div key={i} className={styles.skuRow}>
+                <span>{h.sku_name}</span>
+                <span>{h.quantity} pcs</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className={styles.toolbar}>
@@ -155,49 +224,7 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
         </button>
       </div>
 
-      {workers.length > 0 ? (
-        <div className={styles.workerGrid}>
-          {workers.map(w => {
-            const holding = workerStock.filter(ws => ws.worker_name === w.name)
-            const total = holding.reduce((s, h) => s + h.quantity, 0)
-            return (
-              <div key={w.worker_id} className={styles.workerCard}>
-                <div className={styles.cardTop}>
-                  <div className={styles.avatar}>{w.name[0].toUpperCase()}</div>
-                  <div style={{ flex: 1 }}>
-                    <div className={styles.workerName}>{w.name}</div>
-                    {w.phone && <div className={styles.workerPhone}>{w.phone}</div>}
-                  </div>
-                  <button onClick={() => setSelectedWorker(w)} className={styles.viewBtn} title="View Details">
-                    <MdVisibility size={17} />
-                  </button>
-                  <button onClick={() => handleDelete(w.worker_id)} className={styles.deleteBtn} title="Remove">
-                    <MdDelete size={17} />
-                  </button>
-                </div>
-                <div className={styles.cardBody}>
-                  <Badge text={w.work_type} color="#6366f1" />
-                  <div className={styles.holdingBadge}>
-                    {total > 0
-                      ? <span className="badge badge-warning">{total} pieces</span>
-                      : <span className={styles.noHolding}>No current holding</span>}
-                  </div>
-                </div>
-                {total > 0 && (
-                  <div className={styles.skuList}>
-                    {holding.map((h, i) => (
-                      <div key={i} className={styles.skuRow}>
-                        <span>{h.sku_name}</span>
-                        <span>{h.quantity} pcs</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      ) : (
+      {workers.length === 0 ? (
         <div className="card">
           <div className="empty-state" style={{ padding: 56 }}>
             <div className="empty-state-icon"><MdPeople size={56} /></div>
@@ -208,10 +235,60 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
             </button>
           </div>
         </div>
+      ) : (
+        <div className={styles.splitPane}>
+          {/* Left — Job Work */}
+          <div className={styles.paneCol}>
+            <div className={styles.paneHeader}>
+              <MdBuild size={15} /> Job Work
+              <span className={styles.paneCount}>{jobWorkers.length}</span>
+            </div>
+            <div className={styles.paneScroll}>
+              {jobWorkers.length > 0
+                ? jobWorkers.map(renderCard)
+                : <p className={styles.emptyPane}>No job-work workers</p>}
+            </div>
+          </div>
+          {/* Right — Additional Work */}
+          <div className={styles.paneCol}>
+            <div className={styles.paneHeader}>
+              <MdSwapHoriz size={15} /> Additional Work
+              <span className={styles.paneCount}>{additionalWorkers.length}</span>
+            </div>
+            <div className={styles.paneScroll}>
+              {additionalWorkers.length > 0
+                ? additionalWorkers.map(renderCard)
+                : <p className={styles.emptyPane}>No additional-work workers</p>}
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedWorker && (
         <WorkerDetailModal worker={selectedWorker} onClose={() => setSelectedWorker(null)} />
+      )}
+
+      {modal === 'edit' && editingWorker && (
+        <Modal title={`Edit Worker: ${editingWorker.name}`} onClose={close} width={440}>
+          {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} /> {error}</div>}
+          <FormRow label="Worker Name" required>
+            <input className="form-input" placeholder="e.g. Nilesh Bhai" value={editForm.name}
+              onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
+          </FormRow>
+          <FormRow label="Phone Number">
+            <input className="form-input" placeholder="Optional" value={editForm.phone}
+              onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} />
+          </FormRow>
+          <FormRow label="Work Type">
+            <select className="form-input" value={editForm.work_type}
+              onChange={e => setEditForm(p => ({ ...p, work_type: e.target.value }))}>
+              {WORK_TYPES_WORKER.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </FormRow>
+          <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleEdit} disabled={submitting}>
+            {submitting ? 'Saving...' : 'Save Changes'}
+          </button>
+        </Modal>
       )}
 
       {modal === 'add' && (

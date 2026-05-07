@@ -1,6 +1,6 @@
 // Toggle between local and ngrok
 // export const API_BASE_URL = 'http://localhost:5000'
-export const API_BASE_URL = 'https://1267-2409-4090-1032-7005-68dd-9519-138e-4041.ngrok-free.app'
+export const API_BASE_URL = 'https://69c4-2409-4090-1032-7005-f534-44d6-146a-547e.ngrok-free.app'
 
 // Default headers for all API calls (includes ngrok bypass)
 export const API_HEADERS = {

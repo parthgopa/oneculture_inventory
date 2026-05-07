@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdAdd, MdCheckCircle, MdBuild, MdDelete, MdWarning, MdTimeline, MdPeople } from 'react-icons/md'
 import { apiFetch } from '../../config'
-import { Badge, Modal, FormRow, STATUS_LABELS, STATUS_COLORS } from './helpers'
+import { Badge, Modal, FormRow, STATUS_LABELS, STATUS_COLORS, OrderDateCell } from './helpers'
 import QuickAddWorker from './QuickAddWorker'
 import styles from './ClothOrders.module.css'
 
@@ -19,9 +19,10 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   // Receive Cloth
   const [receiveTarget, setReceiveTarget] = useState(null)
   const [receiveItems, setReceiveItems] = useState([])
+  const [receiveDate, setReceiveDate] = useState('')
 
   // Assign Work
-  const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '' })
+  const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
   const [localWorkers, setLocalWorkers] = useState(workers)
 
   // sync workers prop → local (new workers added via QuickAddWorker)
@@ -50,6 +51,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const openReceive = (order) => {
     setReceiveTarget(order)
     setReceiveItems(order.items.map(i => ({ item_id: i.item_id, sku_name: i.sku_name, quantity_received: i.quantity_ordered })))
+    setReceiveDate('')
     setModal('receive')
   }
 
@@ -58,7 +60,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     try {
       const res = await apiFetch(`/api/production/orders/${receiveTarget.order_id}/receive`, {
         method: 'PATCH',
-        body: JSON.stringify({ items: receiveItems })
+        body: JSON.stringify({ items: receiveItems, date: receiveDate || undefined })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -69,7 +71,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
 
   // ── Assign Work ─────────────────────────────────────────────────────────────
   const openAssign = (order, item) => {
-    setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, worker_name: '', quantity: '', work_type: 'Embroidery', notes: '' })
+    setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
     setLocalWorkers(workers)
     setModal('assign')
   }
@@ -106,10 +108,10 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
         <div key={order.order_id} className={styles.orderCard}>
           <div className={styles.orderHeader}>
             <div>
-              <div className={styles.orderId}>Order: {order.order_id}</div>
+              {/* <div className={styles.orderId}>Order: {order.order_id}</div> */}
               <div className={styles.orderMeta}>
                 Supplier: <strong>{order.supplier_name || '—'}</strong>
-                &nbsp;·&nbsp;{new Date(order.created_at).toLocaleDateString()}
+                &nbsp;·&nbsp;<OrderDateCell orderId={order.order_id} dateStr={order.created_at} onSaved={onRefresh} />
                 {order.notes && <>&nbsp;·&nbsp;{order.notes}</>}
               </div>
             </div>
@@ -235,6 +237,10 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
         <Modal title="Mark Cloth as Received" onClose={close}>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 0 }}>Enter the actual quantity received from the supplier.</p>
+          <FormRow label="Date Received">
+            <input className="form-input" type="date" value={receiveDate}
+              onChange={e => setReceiveDate(e.target.value)} />
+          </FormRow>
           {receiveItems.map((item, idx) => (
             <div key={item.item_id} style={{ marginBottom: 14 }}>
               <label className="form-label">{item.sku_name}</label>
@@ -271,6 +277,10 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
             <select className="form-input" value={assignForm.work_type} onChange={e => setAssignForm(p => ({ ...p, work_type: e.target.value }))}>
               {['Embroidery', 'Cutting', 'Stitching', 'Printing', 'Dyeing', 'Other'].map(t => <option key={t}>{t}</option>)}
             </select>
+          </FormRow>
+          <FormRow label="Date (if backdating)">
+            <input className="form-input" type="date" value={assignForm.date}
+              onChange={e => setAssignForm(p => ({ ...p, date: e.target.value }))} />
           </FormRow>
           <FormRow label="Notes">
             <input className="form-input" placeholder="Optional" value={assignForm.notes} onChange={e => setAssignForm(p => ({ ...p, notes: e.target.value }))} />

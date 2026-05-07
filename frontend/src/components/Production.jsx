@@ -1,25 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle } from 'react-icons/md'
+import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle, MdInbox } from 'react-icons/md'
 import { apiFetch } from '../config'
 import ProductionOverview from './production/ProductionOverview'
 import ClothOrders from './production/ClothOrders'
 import JobWork from './production/JobWork'
 import AdditionalWork from './production/AdditionalWork'
+import ReceiveGoods from './production/ReceiveGoods'
 import WorkersTab from './production/WorkersTab'
 import styles from './Production.module.css'
 
 const TABS = [
   { id: 'overview',       label: 'Overview',        icon: MdBuild },
   { id: 'orders',         label: 'Cloth Orders',     icon: MdAssignment },
+  { id: 'workers',        label: 'Workers',          icon: MdPeople },
   { id: 'jobwork',        label: 'Job Work',         icon: MdBuild },
   { id: 'additionalwork', label: 'Additional Work',  icon: MdSwapHoriz },
-  { id: 'workers',        label: 'Workers',          icon: MdPeople },
+  { id: 'receivegoods',   label: 'Receive Goods',    icon: MdInbox },
 ]
 
 function Production() {
   const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'overview')
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'orders')
   const [loading, setLoading]     = useState(true)
   const [success, setSuccess]     = useState(null)
 
@@ -105,15 +107,19 @@ function Production() {
       {activeTab === 'orders' && (
         <ClothOrders orders={orders} workers={workers} workerStock={workerStock} onRefresh={onRefresh} />
       )}
+      {activeTab === 'workers' && (
+        <WorkersTab workers={workers} workerStock={workerStock} onRefresh={onRefresh} />
+      )}
       {activeTab === 'jobwork' && (
         <JobWork workers={workers} workerStock={workerStock} ledger={ledger} onRefresh={onRefresh} />
       )}
       {activeTab === 'additionalwork' && (
         <AdditionalWork workers={workers} workerStock={workerStock} ledger={ledger} onRefresh={onRefresh} />
       )}
-      {activeTab === 'workers' && (
-        <WorkersTab workers={workers} workerStock={workerStock} onRefresh={onRefresh} />
+      {activeTab === 'receivegoods' && (
+        <ReceiveGoods workers={workers} workerStock={workerStock} ledger={ledger} onRefresh={onRefresh} />
       )}
+      
     </div>
   )
 }

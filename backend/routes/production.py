@@ -125,6 +125,30 @@ def create_worker():
         return jsonify({'error': str(e)}), 500
 
 
+@production_bp.route('/api/production/workers/<worker_id>', methods=['PUT'])
+def update_worker(worker_id):
+    try:
+        data = request.json
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Worker name is required'}), 400
+
+        existing = workers_collection.find_one({'name': name, 'active': True, 'worker_id': {'$ne': worker_id}})
+        if existing:
+            return jsonify({'error': f'Another worker named "{name}" already exists'}), 400
+
+        update_fields = {
+            'name': name,
+            'phone': (data.get('phone') or '').strip(),
+            'work_type': (data.get('work_type') or 'General').strip(),
+        }
+        workers_collection.update_one({'worker_id': worker_id}, {'$set': update_fields})
+        updated = workers_collection.find_one({'worker_id': worker_id})
+        return jsonify(serialize(updated)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @production_bp.route('/api/production/workers/<worker_id>', methods=['DELETE'])
 def delete_worker(worker_id):
     try:
@@ -200,6 +224,26 @@ def get_order_detail(order_id):
         return jsonify({'error': str(e)}), 500
 
 
+@production_bp.route('/api/production/orders/<order_id>/date', methods=['PATCH'])
+def update_order_date(order_id):
+    """Update the created_at date of a cloth order (for backdating)."""
+    try:
+        data = request.json
+        date_str = (data.get('date') or '').strip()
+        if not date_str:
+            return jsonify({'error': 'date is required (ISO format)'}), 400
+        new_date = datetime.fromisoformat(date_str)
+        result = cloth_orders_collection.update_one(
+            {'order_id': order_id},
+            {'$set': {'created_at': new_date}}
+        )
+        if result.matched_count == 0:
+            return jsonify({'error': 'Order not found'}), 404
+        return jsonify({'message': 'Date updated', 'date': new_date.isoformat()}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @production_bp.route('/api/production/orders/<order_id>/receive', methods=['PATCH'])
 def receive_cloth(order_id):
     """Mark cloth as physically received from supplier. Creates ledger: supplier → company."""
@@ -225,6 +269,13 @@ def receive_cloth(order_id):
                 {'order_id': order_id, 'items.item_id': item_id},
                 {'$set': {'items.$.quantity_received': qty, 'items.$.status': 'received'}}
             )
+            date_str = data.get('date') or ''
+            entry_date = datetime.now()
+            if date_str:
+                try:
+                    entry_date = datetime.fromisoformat(date_str)
+                except Exception:
+                    pass
             work_ledger_collection.insert_one({
                 'ledger_id': generate_id('L'),
                 'order_id': order_id,
@@ -236,7 +287,7 @@ def receive_cloth(order_id):
                 'stage': 'cloth_received',
                 'work_type': 'Cloth Receipt',
                 'notes': f"Cloth received from {order.get('supplier_name') or 'supplier'}",
-                'created_at': datetime.now()
+                'created_at': entry_date
             })
             updated += 1
 
@@ -282,6 +333,12 @@ def assign_job_work():
                 {'order_id': order_id}, {'$set': {'status': 'in_work'}}
             )
 
+        date_str = (data.get('date') or '').strip()
+        entry_date = datetime.now()
+        if date_str:
+            try: entry_date = datetime.fromisoformat(date_str)
+            except Exception: pass
+
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
             'order_id': order_id,
@@ -293,7 +350,7 @@ def assign_job_work():
             'stage': 'job_assigned',
             'work_type': work_type,
             'notes': notes,
-            'created_at': datetime.now()
+            'created_at': entry_date
         })
         return jsonify({'message': f'Assigned {quantity} pieces of "{sku_name}" to {worker_name}'}), 201
     except Exception as e:
@@ -327,6 +384,12 @@ def transfer_work():
                 'error': f'{from_worker} only has {available} pieces of "{sku_name}" available'
             }), 400
 
+        date_str = (data.get('date') or '').strip()
+        entry_date = datetime.now()
+        if date_str:
+            try: entry_date = datetime.fromisoformat(date_str)
+            except Exception: pass
+
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
             'order_id': order_id,
@@ -338,7 +401,7 @@ def transfer_work():
             'stage': 'transferred',
             'work_type': work_type,
             'notes': notes,
-            'created_at': datetime.now()
+            'created_at': entry_date
         })
         return jsonify({'message': f'Transferred {quantity} pieces of "{sku_name}" from {from_worker} to {to_worker}'}), 201
     except Exception as e:
@@ -369,6 +432,12 @@ def receive_final():
                 'error': f'{worker_name} only has {available} pieces of "{sku_name}" available'
             }), 400
 
+        date_str = (data.get('date') or '').strip()
+        entry_date = datetime.now()
+        if date_str:
+            try: entry_date = datetime.fromisoformat(date_str)
+            except Exception: pass
+
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
             'order_id': order_id,
@@ -381,7 +450,7 @@ def receive_final():
             'work_type': 'Final Receive',
             'notes': notes,
             'mrp': mrp,
-            'created_at': datetime.now()
+            'created_at': entry_date
         })
 
         if order_id and item_id:
@@ -397,6 +466,133 @@ def receive_final():
             'mrp': mrp,
             'ready_for_barcode': True
         }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Return to Supplier ────────────────────────────────────────────────────────
+
+@production_bp.route('/api/production/return-to-supplier', methods=['POST'])
+def return_to_supplier():
+    """Worker or company returns defective/plain cloth back to supplier."""
+    try:
+        data = request.json
+        from_entity = (data.get('from_entity') or '').strip()
+        sku_name    = (data.get('sku_name') or '').strip()
+        quantity    = int(data.get('quantity') or 0)
+        supplier    = (data.get('supplier_name') or 'Supplier').strip()
+        notes       = (data.get('notes') or '').strip()
+        order_id    = (data.get('order_id') or '').strip()
+        item_id     = (data.get('item_id') or '').strip()
+        date_str    = (data.get('date') or '').strip()
+
+        if not from_entity or not sku_name or quantity <= 0:
+            return jsonify({'error': 'from_entity, sku_name, and quantity are required'}), 400
+
+        available = get_entity_holding(from_entity, sku_name=sku_name)
+        if available < quantity:
+            return jsonify({
+                'error': f'"{from_entity}" only has {available} pieces of "{sku_name}" available'
+            }), 400
+
+        created_at = datetime.now()
+        if date_str:
+            try:
+                created_at = datetime.fromisoformat(date_str)
+            except Exception:
+                pass
+
+        work_ledger_collection.insert_one({
+            'ledger_id': generate_id('L'),
+            'order_id': order_id,
+            'item_id': item_id,
+            'sku_name': sku_name,
+            'from_entity': from_entity,
+            'to_entity': supplier,
+            'quantity': quantity,
+            'stage': 'returned_to_supplier',
+            'work_type': 'Return',
+            'notes': notes or f'Returned to {supplier}',
+            'created_at': created_at
+        })
+        return jsonify({'message': f'Returned {quantity} pieces of "{sku_name}" from {from_entity} to {supplier}'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Ledger Entry Edits ────────────────────────────────────────────────────────
+
+@production_bp.route('/api/production/ledger/<ledger_id>/date', methods=['PATCH'])
+def update_ledger_date(ledger_id):
+    """Update the created_at date of a ledger entry (for backdating)."""
+    try:
+        data = request.json
+        date_str = (data.get('date') or '').strip()
+        if not date_str:
+            return jsonify({'error': 'date is required (ISO format)'}), 400
+        new_date = datetime.fromisoformat(date_str)
+        result = work_ledger_collection.update_one(
+            {'ledger_id': ledger_id},
+            {'$set': {'created_at': new_date}}
+        )
+        if result.matched_count == 0:
+            return jsonify({'error': 'Ledger entry not found'}), 404
+        return jsonify({'message': 'Date updated', 'date': new_date.isoformat()}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/ledger/<ledger_id>/revert', methods=['POST'])
+def revert_ledger_entry(ledger_id):
+    """
+    Revert a ledger entry by inserting an equal-and-opposite counter-entry.
+    The original is preserved for audit. The counter-entry has stage='reverted'.
+    """
+    try:
+        original = work_ledger_collection.find_one({'ledger_id': ledger_id})
+        if not original:
+            return jsonify({'error': 'Ledger entry not found'}), 404
+        if original.get('stage') == 'revert_source':
+            return jsonify({'error': 'This entry has already been reverted'}), 400
+
+        # Check if already reverted (a counter-entry exists referencing this id)
+        already = work_ledger_collection.find_one({'reverts_ledger_id': ledger_id})
+        if already and already.get('stage') != 'revert_source':
+            return jsonify({'error': 'This entry has already been reverted'}), 400
+
+        data = request.json or {}
+        notes = (data.get('notes') or f"Reverted: {original.get('notes') or original.get('stage')}").strip()
+
+        # Validate the "from" entity (original to_entity) still holds enough
+        holding_entity = original['to_entity']
+        if holding_entity.lower() not in ('company',) and not holding_entity.lower().startswith('supplier'):
+            available = get_entity_holding(holding_entity, sku_name=original['sku_name'])
+            if available < original['quantity']:
+                return jsonify({
+                    'error': f'Cannot revert: "{holding_entity}" only has {available} pieces of '
+                             f'"{original["sku_name"]}" (need {original["quantity"]})'
+                }), 400
+
+        work_ledger_collection.insert_one({
+            'ledger_id': generate_id('L'),
+            'order_id': original.get('order_id', ''),
+            'item_id': original.get('item_id', ''),
+            'sku_name': original['sku_name'],
+            'from_entity': original['to_entity'],   # reverse direction
+            'to_entity': original['from_entity'],
+            'quantity': original['quantity'],
+            'stage': 'reverted',
+            'work_type': 'Revert',
+            'notes': notes,
+            'reverts_ledger_id': ledger_id,
+            'created_at': datetime.now()
+        })
+        # Mark the original so the frontend knows it has been reverted
+        work_ledger_collection.update_one(
+            {'ledger_id': ledger_id},
+            {'$set': {'stage': 'revert_source', 'reverted_by': ledger_id}}
+        )
+        return jsonify({'message': f'Reverted ledger entry {ledger_id}'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

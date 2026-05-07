@@ -370,8 +370,19 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.message.success {
+.message.success,
+.message.in {
   background: rgba(16, 185, 129, 0.92);
+  color: #fff;
+}
+
+.message.out {
+  background: rgba(239, 68, 68, 0.92);
+  color: #fff;
+}
+
+.message.not_found {
+  background: rgba(234, 88, 12, 0.92);
   color: #fff;
 }
 

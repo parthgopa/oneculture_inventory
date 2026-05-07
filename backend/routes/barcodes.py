@@ -192,6 +192,7 @@ def get_batch_details(batch_id):
             'sku_name': barcodes[0]['sku_name'],
             'mrp': barcodes[0]['mrp'],
             'size': barcodes[0].get('size', ''),
+            'color': barcodes[0].get('color', ''),
             'created_at': barcodes[0]['created_at'].isoformat() if barcodes[0].get('created_at') else None,
             'quantity': len(barcodes)
         }

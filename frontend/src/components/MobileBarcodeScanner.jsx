@@ -8,6 +8,7 @@ import {
   MdFlashOff,
   MdCheckCircle,
   MdError,
+  MdLogout,
   MdCameraAlt,
   MdKeyboard
 } from 'react-icons/md'
@@ -428,32 +429,26 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
 
       if (!mountedRef.current) return
 
-      if (res.ok) {
-        const action = data.action_type === 'IN' ? '✅ Stock In' : '✅ Stock Out'
+      if (res.status === 404) {
+        setMessage({ type: 'not_found', text: 'Barcode not in database — not registered in the system' })
+        resumeScanAfterDelay(2000)
+      } else if (res.ok) {
+        const isIn = data.action_type === 'IN'
         setMessage({
-          type: 'success',
-          text: `${action} — ${data.sku_name}`
+          type: isIn ? 'in' : 'out',
+          text: `${isIn ? 'Stock In' : 'Stock Out'} — ${data.sku_name} (stock: ${data.current_stock})`
         })
-
         if (onScanSuccess) onScanSuccess(data)
         playBeep()
         if (navigator.vibrate) navigator.vibrate([100, 50, 100])
-
-        // Stay open — resume scanning after 1.5s (like Meesho/other apps)
         resumeScanAfterDelay(1500)
       } else {
-        setMessage({
-          type: 'error',
-          text: data.error || 'Scan failed'
-        })
+        setMessage({ type: 'error', text: data.error || 'Scan failed' })
         resumeScanAfterDelay()
       }
     } catch (err) {
       if (!mountedRef.current) return
-      setMessage({
-        type: 'error',
-        text: 'Network error — is the backend running?'
-      })
+      setMessage({ type: 'error', text: `Network error — ${err.message}` })
       resumeScanAfterDelay()
     }
   }
@@ -609,9 +604,10 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
               {/* Status message — inside viewfinder so absolute positioning works correctly */}
               {message && (
                 <div className={`${styles.message} ${styles[message.type]}`}>
-                  {message.type === 'success'
-                    ? <MdCheckCircle size={20} />
-                    : <MdError size={20} />}
+                  {message.type === 'in'        && <MdCheckCircle size={20} />}
+                  {message.type === 'out'       && <MdLogout size={20} />}
+                  {message.type === 'not_found' && <MdError size={20} />}
+                  {message.type === 'error'     && <MdError size={20} />}
                   <span>{message.text}</span>
                 </div>
               )}

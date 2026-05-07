@@ -3,7 +3,7 @@ import {
   MdRefresh, MdArrowDownward, MdCheckCircle, MdSchedule, MdSearch,
   MdQrCode2, MdAssignment, MdExpandMore, MdExpandLess, MdInventory2,
   MdPeople, MdAutorenew, MdWarehouse, MdLocalShipping, MdOpenInNew,
-  MdClose, MdFiberManualRecord
+  MdClose, MdFiberManualRecord, MdUndo
 } from 'react-icons/md'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../config'
@@ -12,12 +12,13 @@ import styles from './ProductionTracker.module.css'
 // ── Stage icon map using react-icons ─────────────────────────────────────────
 function StageIconEl({ stage, size = 18 }) {
   const map = {
-    ordered:         <MdLocalShipping size={size} />,
-    received:        <MdInventory2 size={size} />,
-    job_work:        <MdPeople size={size} />,
-    additional_work: <MdAutorenew size={size} />,
-    final_received:  <MdWarehouse size={size} />,
-    barcode:         <MdQrCode2 size={size} />,
+    ordered:               <MdLocalShipping size={size} />,
+    received:              <MdInventory2 size={size} />,
+    job_work:              <MdPeople size={size} />,
+    additional_work:       <MdAutorenew size={size} />,
+    returned_to_supplier:  <MdUndo size={size} />,
+    final_received:        <MdWarehouse size={size} />,
+    barcode:               <MdQrCode2 size={size} />,
   }
   return map[stage] || <MdFiberManualRecord size={size} />
 }
@@ -54,11 +55,12 @@ function SkuTracker({ sku, ledger, batches }) {
   const navigate   = useNavigate()
   const [open, setOpen] = useState(false)
 
-  const skuLedger      = ledger.filter(e => e.sku_name === sku.sku_name)
-  const clothReceived  = skuLedger.filter(e => e.stage === 'cloth_received')
-  const jobAssigned    = skuLedger.filter(e => e.stage === 'job_assigned')
-  const transferred    = skuLedger.filter(e => e.stage === 'transferred')
-  const finalReceived  = skuLedger.filter(e => e.stage === 'final_received')
+  const skuLedger          = ledger.filter(e => e.sku_name === sku.sku_name)
+  const clothReceived      = skuLedger.filter(e => e.stage === 'cloth_received')
+  const jobAssigned        = skuLedger.filter(e => e.stage === 'job_assigned')
+  const transferred        = skuLedger.filter(e => e.stage === 'transferred')
+  const returnedEntries    = skuLedger.filter(e => e.stage === 'returned_to_supplier')
+  const finalReceived      = skuLedger.filter(e => e.stage === 'final_received')
 
   // Barcode batches for this SKU
   const skuBatches = batches.filter(b =>
@@ -69,6 +71,7 @@ function SkuTracker({ sku, ledger, batches }) {
   const totalOrdered       = sku.total_ordered
   const totalReceived      = clothReceived.reduce((s, e) => s + e.quantity, 0)
   const totalJobWork       = jobAssigned.reduce((s, e) => s + e.quantity, 0)
+  const totalReturned      = returnedEntries.reduce((s, e) => s + e.quantity, 0)
   const totalFinalReceived = finalReceived.reduce((s, e) => s + e.quantity, 0)
 
   const pct = (n, d) => d > 0 ? Math.min(100, Math.round((n / d) * 100)) : 0
@@ -93,6 +96,7 @@ function SkuTracker({ sku, ledger, batches }) {
     { label: `${totalOrdered} ordered`,          done: true },
     { label: `${totalReceived} received`,         done: totalReceived > 0 },
     { label: `${totalJobWork} in job work`,       done: totalJobWork > 0 },
+    ...(totalReturned > 0 ? [{ label: `${totalReturned} returned`, done: true }] : []),
     { label: `${totalFinalReceived} final rcvd`,  done: totalFinalReceived > 0 },
     { label: `${totalBarcoded} barcoded`,         done: totalBarcoded > 0 },
   ]
@@ -216,6 +220,31 @@ function SkuTracker({ sku, ledger, batches }) {
                     <span className={styles.date}>{new Date(e.created_at).toLocaleDateString()}</span>
                   </div>
                 ))}
+              </StageBlock>
+            </>
+          )}
+
+          {returnedEntries.length > 0 && (
+            <>
+              <StageConnector done />
+              {/* Return to Supplier */}
+              <StageBlock stage="returned_to_supplier" label="Returned to Supplier" color="#ef4444" done>
+                {returnedEntries.map((e, i) => (
+                  <div key={i} className={styles.workerEntry}>
+                    <div className={styles.workerAvatar} style={{ background: 'linear-gradient(135deg,#ef4444,#dc2626)' }}>
+                      <MdUndo size={14} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div className={styles.workerName}>{e.from_entity} → {e.to_entity}</div>
+                      <div className={styles.workerMeta}>{e.notes || 'Returned'}</div>
+                    </div>
+                    <span className={styles.qty}>{e.quantity} pcs</span>
+                    <span className={styles.date}>{new Date(e.created_at).toLocaleDateString()}</span>
+                  </div>
+                ))}
+                <div className={styles.remaining} style={{ color: '#ef4444' }}>
+                  <MdUndo size={13} /> {totalReturned} pcs returned to supplier
+                </div>
               </StageBlock>
             </>
           )}

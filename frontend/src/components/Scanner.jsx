@@ -228,18 +228,26 @@ function Scanner() {
     setScanning(true)
     setMessage(null)
 
+    console.log(`[Scanner] processScan called: "${barcodeValue}"`)
+
     try {
       const payload = { barcode_id: barcodeValue.trim() }
       const res = await apiFetch('/api/scan', {
         method: 'POST',
         body: JSON.stringify(payload)
       })
-      const data = await res.json()
 
-      if (res.ok) {
-        const action = data.action_type === 'IN' ? 'Stock In' : 'Stock Out'
-        console.log(`✅ ${action} | ${data.sku_name} | Stock: ${data.current_stock}`)
-        showMsg('success', `${action} — ${data.sku_name} (stock: ${data.current_stock})`)
+      const data = await res.json()
+      console.log(`[Scanner] HTTP ${res.status}`, data)
+
+      if (res.status === 404) {
+        console.log('[Scanner] Barcode not in database')
+        showMsg('not_found', 'Barcode not in database — this barcode is not registered in the system')
+      } else if (res.ok) {
+        const isIn  = data.action_type === 'IN'
+        const label = isIn ? 'Stock In' : 'Stock Out'
+        console.log(`✅ ${label} | ${data.sku_name} | Stock: ${data.current_stock}`)
+        showMsg(isIn ? 'in' : 'out', `${label} — ${data.sku_name} (stock: ${data.current_stock})`)
         setBarcode('')
         fetchRecentScans()
       } else {
@@ -248,7 +256,7 @@ function Scanner() {
       }
     } catch (err) {
       console.log('❌ Network error:', err.message)
-      showMsg('error', 'Network error — is the backend running?')
+      showMsg('error', `Network error — ${err.message}`)
     } finally {
       setScanning(false)
       if (inputRef.current) inputRef.current.focus()
@@ -457,10 +465,28 @@ function Scanner() {
         </h3>
 
         {message && (
-          <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'}`} style={{ marginBottom: 14 }}>
-            {message.type === 'success'
-              ? <MdCheckCircle size={20} style={{ flexShrink: 0 }} />
-              : <MdError size={20} style={{ flexShrink: 0 }} />}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '12px 16px', borderRadius: 8, marginBottom: 14,
+            fontWeight: 500, fontSize: 14,
+            background: message.type === 'in' ? '#f0fdf4'
+              : message.type === 'out' ? '#fef2f2'
+              : message.type === 'not_found' ? '#fff7ed'
+              : '#fef2f2',
+            border: `1.5px solid ${
+              message.type === 'in' ? '#16a34a'
+              : message.type === 'out' ? '#dc2626'
+              : message.type === 'not_found' ? '#ea580c'
+              : '#dc2626'}`,
+            color: message.type === 'in' ? '#15803d'
+              : message.type === 'out' ? '#dc2626'
+              : message.type === 'not_found' ? '#c2410c'
+              : '#dc2626'
+          }}>
+            {message.type === 'in'  && <MdCheckCircle size={20} style={{ flexShrink: 0 }} />}
+            {message.type === 'out' && <MdLogout size={20} style={{ flexShrink: 0 }} />}
+            {message.type === 'not_found' && <MdError size={20} style={{ flexShrink: 0 }} />}
+            {message.type === 'error' && <MdError size={20} style={{ flexShrink: 0 }} />}
             <span>{message.text}</span>
           </div>
         )}
