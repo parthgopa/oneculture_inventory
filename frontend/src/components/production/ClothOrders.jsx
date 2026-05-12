@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdAdd, MdCheckCircle, MdBuild, MdDelete, MdWarning, MdTimeline, MdPeople } from 'react-icons/md'
 import { apiFetch } from '../../config'
@@ -11,6 +11,11 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [modal, setModal] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  const [skuNames, setSkuNames] = useState([])
+
+  useEffect(() => {
+    apiFetch('/api/skus/names').then(r => r.json()).then(d => { if (Array.isArray(d)) setSkuNames(d) }).catch(() => {})
+  }, [])
 
   // Create Order form
   const emptyItem = () => ({ sku_name: '', fabric_type: '', color: '', quantity_ordered: '', mrp: '' })
@@ -22,7 +27,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [receiveDate, setReceiveDate] = useState('')
 
   // Assign Work
-  const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
+  const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', color: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
   const [localWorkers, setLocalWorkers] = useState(workers)
 
   // sync workers prop → local (new workers added via QuickAddWorker)
@@ -71,7 +76,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
 
   // ── Assign Work ─────────────────────────────────────────────────────────────
   const openAssign = (order, item) => {
-    setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
+    setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, color: item.color || '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
     setLocalWorkers(workers)
     setModal('assign')
   }
@@ -181,6 +186,10 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
       {/* ── Create Order Modal ─────────────────────────────────────────────── */}
       {modal === 'createOrder' && (
         <Modal title="New Cloth Order" onClose={close} width={720}>
+          {/* Shared datalist for SKU autocomplete */}
+          <datalist id="sku-datalist">
+            {skuNames.map(name => <option key={name} value={name} />)}
+          </datalist>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} />{error}</div>}
           <FormRow label="Supplier Name">
             <input className="form-input" placeholder="e.g. Raj Textiles" value={orderForm.supplier_name} onChange={e => setOrderForm(p => ({ ...p, supplier_name: e.target.value }))} />
@@ -200,7 +209,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
               <div key={idx} className={styles.itemRow}>
                 <div className={styles.itemField} style={{ flex: 2 }}>
                   <label className={styles.fieldLabel}>SKU Name *</label>
-                  <input className="form-input" placeholder="e.g. Design A" value={item.sku_name} onChange={e => updateItem(idx, 'sku_name', e.target.value)} />
+                  <input className="form-input" placeholder="e.g. Design A" list="sku-datalist" value={item.sku_name} onChange={e => updateItem(idx, 'sku_name', e.target.value)} />
                 </div>
                 <div className={styles.itemField}>
                   <label className={styles.fieldLabel}>Fabric</label>
@@ -259,9 +268,13 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
       {modal === 'assign' && (
         <Modal title="Assign Work to Worker" onClose={close}>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
-          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
-            SKU: <strong>{assignForm.sku_name}</strong>
+          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 16, fontSize: 13, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <span>SKU: <strong>{assignForm.sku_name}</strong></span>
+            {assignForm.color && <span>Color: <strong>{assignForm.color}</strong></span>}
           </div>
+          <FormRow label="Color">
+            <input className="form-input" placeholder="e.g. Red, Blue (leave blank if none)" value={assignForm.color} onChange={e => setAssignForm(p => ({ ...p, color: e.target.value }))} />
+          </FormRow>
           <div className="form-group">
             <label className="form-label">Worker <span style={{ color: 'var(--danger-color)' }}>*</span></label>
             <select className="form-input" value={assignForm.worker_name} onChange={e => setAssignForm(p => ({ ...p, worker_name: e.target.value }))}>

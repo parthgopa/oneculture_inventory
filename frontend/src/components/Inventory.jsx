@@ -66,6 +66,16 @@ function Inventory() {
     return () => clearInterval(interval)
   }, [fetchInventory])
 
+  // Fetch ALL product images in one request on mount (not per-product)
+  useEffect(() => {
+    apiFetch('/api/inventory/product-images')
+      .then(r => r.json())
+      .then(data => {
+        if (data && typeof data === 'object') setProductImages(data)
+      })
+      .catch(() => {})
+  }, [])
+
   // Reset to page 1 when search/filter changes
   useEffect(() => {
     setCurrentPage(1)
@@ -129,31 +139,7 @@ function Inventory() {
     return pages
   }
 
-  // Fetch images for visible products
-  useEffect(() => {
-    const fetchImages = async () => {
-      for (const product of paginatedInventory) {
-        const key = `${product.sku_name}_${product.company_name}`
-        if (!productImages[key]) {
-          try {
-            const response = await apiFetch(
-              `/api/inventory/product-image/${encodeURIComponent(product.sku_name)}?company=${encodeURIComponent(product.company_name)}`
-            )
-            const data = await response.json()
-            if (data.image) {
-              setProductImages(prev => ({ ...prev, [key]: data.image }))
-            }
-          } catch (err) {
-            console.error('Error fetching image:', err)
-          }
-        }
-      }
-    }
-    
-    if (paginatedInventory.length > 0) {
-      fetchImages()
-    }
-  }, [paginatedInventory])
+  // (Images fetched in bulk above — no per-product fetch needed)
 
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -295,7 +281,7 @@ function Inventory() {
               <tbody>
                 {paginatedInventory.map((item) => {
                   const status = getStockStatus(item.total_stock)
-                  const imageKey = `${item.sku_name}_${item.company_name}`
+                  const imageKey = `${item.sku_name}__${item.company_name}`
                   const productImage = productImages[imageKey]
                   
                   return (

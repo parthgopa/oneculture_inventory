@@ -311,6 +311,7 @@ def assign_job_work():
         item_id = (data.get('item_id') or '').strip()
         work_type = (data.get('work_type') or 'Job Work').strip()
         notes = (data.get('notes') or '').strip()
+        color = (data.get('color') or '').strip()
 
         if not worker_name or quantity <= 0 or not sku_name:
             return jsonify({'error': 'Worker name, SKU, and quantity are required'}), 400
@@ -344,6 +345,7 @@ def assign_job_work():
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
+            'color': color,
             'from_entity': 'company',
             'to_entity': worker_name,
             'quantity': quantity,

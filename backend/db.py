@@ -25,6 +25,9 @@ cloth_orders_collection = db['cloth_orders']
 work_ledger_collection = db['work_ledger']
 workers_collection = db['workers']
 
+# SKU catalog — global product name/description/image registry
+sku_catalog_collection = db['sku_catalog']
+
 # Constants
 STOCK_THRESHOLD = 10
 
@@ -59,7 +62,10 @@ def ensure_indexes():
     work_ledger_collection.create_index([('to_entity', ASCENDING), ('sku_name', ASCENDING)])
     workers_collection.create_index('worker_id', unique=True)
     workers_collection.create_index('name')
-    
+
+    # SKU catalog
+    sku_catalog_collection.create_index('sku_name', unique=True)
+
     print("[DB] Indexes ensured")
 
 # Run on import

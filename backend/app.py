@@ -16,6 +16,7 @@ from routes.alerts import alerts_bp
 from routes.dashboard import dashboard_bp
 from routes.auth import auth_bp
 from routes.production import production_bp
+from routes.skus import skus_bp
 
 app = Flask(__name__)
 # Explicit CORS configuration for local dev + ngrok tunneling
@@ -48,6 +49,7 @@ app.register_blueprint(alerts_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(production_bp)
+app.register_blueprint(skus_bp)
 
 
 if __name__ == '__main__':

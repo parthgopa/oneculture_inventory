@@ -133,6 +133,36 @@ def get_inventory():
         return jsonify({'error': str(e)}), 500
 
 
+@inventory_bp.route('/api/inventory/product-images', methods=['GET'])
+def get_all_product_images():
+    """
+    Return all product images in one query keyed by 'sku_name__company_name'.
+    Single aggregation replaces N per-product image requests on the inventory page.
+    """
+    try:
+        # One aggregation: for each (sku_name, company_name) pair find the first
+        # barcode doc in the batch that carries a product_image field.
+        pipeline = [
+            {'$match': {'product_image': {'$exists': True, '$ne': None}}},
+            {'$group': {
+                '_id': {'sku_name': '$sku_name', 'company_name': '$company_name'},
+                'image': {'$first': '$product_image'}
+            }},
+            {'$project': {
+                '_id': 0,
+                'sku_name': '$_id.sku_name',
+                'company_name': '$_id.company_name',
+                'image': 1
+            }}
+        ]
+        results = list(barcodes_collection.aggregate(pipeline))
+        # Key by "sku_name__company_name" for easy frontend lookup
+        images = {f"{r['sku_name']}__{r['company_name']}": r['image'] for r in results}
+        return jsonify(images), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @inventory_bp.route('/api/inventory/product-image/<sku_name>', methods=['GET'])
 def get_product_image(sku_name):
     """Get product image by SKU name - for lazy loading"""

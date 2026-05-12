@@ -15,6 +15,7 @@ import Alerts from './components/Alerts'
 import Settings from './components/Settings'
 import Production from './components/Production'
 import ProductionTracker from './components/ProductionTracker'
+import SkuCatalog from './components/SkuCatalog'
 import Login from './components/Login'
 import Signup from './components/Signup'
 import Sidebar from './components/Sidebar'
@@ -51,6 +52,7 @@ function MainLayout() {
           <Route path="/product/:skuName" element={<ProductDetails />} />
           <Route path="/production" element={<Production />} />
           <Route path="/tracker" element={<ProductionTracker />} />
+          <Route path="/skus" element={<SkuCatalog />} />
           <Route path="/generator" element={<BarcodeGenerator />} />
           <Route path="/batch/:batchId" element={<BatchDetails />} />
           <Route path="/alerts" element={<Alerts />} />

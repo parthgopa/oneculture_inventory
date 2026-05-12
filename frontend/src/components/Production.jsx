@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle, MdInbox } from 'react-icons/md'
+import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle, MdInbox, MdQrCode2 } from 'react-icons/md'
 import { apiFetch } from '../config'
 import ProductionOverview from './production/ProductionOverview'
 import ClothOrders from './production/ClothOrders'
@@ -8,15 +8,17 @@ import JobWork from './production/JobWork'
 import AdditionalWork from './production/AdditionalWork'
 import ReceiveGoods from './production/ReceiveGoods'
 import WorkersTab from './production/WorkersTab'
+import GenerateBarcode from './production/GenerateBarcode'
 import styles from './Production.module.css'
 
 const TABS = [
-  { id: 'overview',       label: 'Overview',        icon: MdBuild },
-  { id: 'orders',         label: 'Cloth Orders',     icon: MdAssignment },
-  { id: 'workers',        label: 'Workers',          icon: MdPeople },
-  { id: 'jobwork',        label: 'Job Work',         icon: MdBuild },
-  { id: 'additionalwork', label: 'Additional Work',  icon: MdSwapHoriz },
-  { id: 'receivegoods',   label: 'Receive Goods',    icon: MdInbox },
+  { id: 'overview',        label: 'Overview',         icon: MdBuild },
+  { id: 'orders',          label: 'Cloth Orders',     icon: MdAssignment },
+  { id: 'workers',         label: 'Workers',          icon: MdPeople },
+  { id: 'jobwork',         label: 'Job Work',         icon: MdBuild },
+  { id: 'additionalwork',  label: 'Additional Work',  icon: MdSwapHoriz },
+  { id: 'receivegoods',    label: 'Receive Goods',    icon: MdInbox },
+  { id: 'generatebarcode', label: 'Generate Barcode', icon: MdQrCode2 },
 ]
 
 function Production() {
@@ -119,7 +121,9 @@ function Production() {
       {activeTab === 'receivegoods' && (
         <ReceiveGoods workers={workers} workerStock={workerStock} ledger={ledger} onRefresh={onRefresh} />
       )}
-      
+      {activeTab === 'generatebarcode' && (
+        <GenerateBarcode readyItems={readyItems} />
+      )}
     </div>
   )
 }
