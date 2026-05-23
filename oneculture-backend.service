@@ -1,0 +1,15 @@
+[Unit]
+Description=OneCulture Inventory - Flask Backend (Gunicorn)
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/var/www/oneculture/repo/backend
+Environment="PATH=/var/www/oneculture/repo/backend/venv/bin"
+EnvironmentFile=/var/www/oneculture/repo/backend/.env
+ExecStart=/var/www/oneculture/repo/backend/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

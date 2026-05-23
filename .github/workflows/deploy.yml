@@ -1,0 +1,23 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 147.79.71.224
+          username: root
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          script: |
+            bash /var/www/oneculture/repo/deploy.sh
