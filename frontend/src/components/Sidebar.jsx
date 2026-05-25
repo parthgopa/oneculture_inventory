@@ -96,7 +96,7 @@ function Sidebar() {
           </button>
           
           <div className={styles.mobileLogo}>
-            <img src="/logo.webp" alt="OneCulture" style={{ height: '32px', objectFit: 'contain' }} />
+            <img src="/logo.jpeg" alt="OneCulture" style={{ height: '32px', objectFit: 'contain' }} />
           </div>
           
           <div style={{ width: 40 }} /> {/* Spacer for centering */}
@@ -112,7 +112,7 @@ function Sidebar() {
       <aside className={`${styles.sidebar} ${isMobile ? styles.mobile : ''} ${isOpen ? styles.open : ''}`}>
         {/* Logo */}
         <div className={styles.logoSection}>
-          <img src="/logo.webp" alt="OneCulture" style={{ maxWidth: '70%', maxHeight: '64px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
+          <img src="/logo.jpeg" alt="OneCulture" style={{ maxWidth: '70%', maxHeight: '64px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
         </div>
 
         {/* Navigation */}

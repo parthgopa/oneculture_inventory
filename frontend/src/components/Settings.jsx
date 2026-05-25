@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../config'
-import { useAuth } from '../context/AuthContext'
 import {
   MdSettings,
   MdSave,
@@ -35,7 +34,6 @@ const cacheSettings = (settings) => {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 function Settings() {
-  const { user } = useAuth()
   const [settings, setSettings] = useState(getSettings())
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -46,18 +44,16 @@ function Settings() {
   // Load preferences from DB on mount, then fetch inventory
   useEffect(() => {
     const init = async () => {
-      if (user?.id) {
-        try {
-          const res = await apiFetch(`/api/auth/preferences?user_id=${user.id}`)
-          if (res.ok) {
-            const prefs = await res.json()
-            const merged = { ...DEFAULT_SETTINGS, ...prefs }
-            setSettings(merged)
-            cacheSettings(merged) // keep localStorage in sync
-          }
-        } catch (e) {
-          console.warn('Could not load preferences from DB, using cached values')
+      try {
+        const res = await apiFetch('/api/preferences')
+        if (res.ok) {
+          const prefs = await res.json()
+          const merged = { ...DEFAULT_SETTINGS, ...prefs }
+          setSettings(merged)
+          cacheSettings(merged)
         }
+      } catch (e) {
+        console.warn('Could not load preferences from DB, using cached values')
       }
       try {
         const res = await apiFetch('/api/inventory')
@@ -67,19 +63,19 @@ function Settings() {
       setLoading(false)
     }
     init()
-  }, [user])
+  }, [])
 
   const handleSave = async () => {
     setSaving(true)
     setSaveError(null)
     try {
-      const res = await apiFetch('/api/auth/preferences', {
+      const res = await apiFetch('/api/preferences', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id, preferences: settings })
+        body: JSON.stringify({ preferences: settings })
       })
       if (!res.ok) throw new Error('Save failed')
-      cacheSettings(settings) // update localStorage cache + fire event
+      cacheSettings(settings)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e) {

@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route } from 'react-router-dom'
 import './theme.css'
 
 // Auth
@@ -16,28 +16,8 @@ import Settings from './components/Settings'
 import Production from './components/Production'
 import ProductionTracker from './components/ProductionTracker'
 import SkuCatalog from './components/SkuCatalog'
-import Login from './components/Login'
-import Signup from './components/Signup'
+import AccessGate from './components/AccessGate'
 import Sidebar from './components/Sidebar'
-
-// Protected Route wrapper
-function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth()
-  
-  if (loading) {
-    return (
-      <div className="auth-container">
-        <div className="loading"></div>
-      </div>
-    )
-  }
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-  
-  return children
-}
 
 // Main Layout with sidebar
 function MainLayout() {
@@ -65,7 +45,7 @@ function MainLayout() {
 
 function AppRoutes() {
   const { isAuthenticated, loading } = useAuth()
-  
+
   if (loading) {
     return (
       <div className="auth-container">
@@ -74,26 +54,11 @@ function AppRoutes() {
     )
   }
 
-  return (
-    <Routes>
-      <Route 
-        path="/login" 
-        element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} 
-      />
-      <Route 
-        path="/signup" 
-        element={isAuthenticated ? <Navigate to="/" replace /> : <Signup />} 
-      />
-      <Route 
-        path="/*" 
-        element={
-          <ProtectedRoute>
-            <MainLayout />
-          </ProtectedRoute>
-        } 
-      />
-    </Routes>
-  )
+  if (!isAuthenticated) {
+    return <AccessGate />
+  }
+
+  return <MainLayout />
 }
 
 function App() {

@@ -18,7 +18,7 @@ barcodes_collection = db['barcodes']
 scan_events_collection = db['scan_events']
 alerts_collection = db['alerts']
 scanners_collection = db['scanners']
-users_collection = db['users']
+app_preferences_collection = db['app_preferences']
 
 # Production workflow collections
 cloth_orders_collection = db['cloth_orders']
@@ -51,9 +51,6 @@ def ensure_indexes():
     # Scanners
     scanners_collection.create_index('scanner_id', unique=True)
     
-    # Users
-    users_collection.create_index('email', unique=True)
-
     # Production workflow
     cloth_orders_collection.create_index('order_id', unique=True)
     cloth_orders_collection.create_index('status')

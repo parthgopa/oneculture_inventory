@@ -13,8 +13,8 @@
 .sticker {
   width: 182px;
   height: 202px;
-  border: 1.5px solid #ccc;
-  border-radius: 6px;
+  border: 1.5px solid #333;
+  border-radius: 5px;
   display: flex;
   flex-direction: row;
   overflow: hidden;
@@ -23,34 +23,41 @@
   flex-shrink: 0;
 }
 
-/* Left content area — SKU, MRP, barcode */
+/* ── Left column: info rows + barcode ─────────────────────────── */
 .stickerLeft {
   flex: 1;
-  padding: 8px 6px 6px 9px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1.5px solid #333;
+}
+
+/* Top info section */
+.stickerInfo {
+  padding: 7px 6px 5px 7px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 0;
 }
 
 .stickerRow {
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 3px;
   line-height: 1.3;
 }
 
 .stickerLabel {
   font-size: 7px;
   font-weight: 700;
-  color: #777;
+  color: #555;
   text-transform: uppercase;
-  min-width: 22px;
+  min-width: 28px;
   flex-shrink: 0;
 }
 
 .stickerValue {
-  font-size: 9px;
+  font-size: 8.5px;
   font-weight: 600;
   color: #111;
   white-space: nowrap;
@@ -60,30 +67,31 @@
 
 .stickerMrp {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
   color: #111;
 }
 
-/* Barcode takes remaining vertical space */
+/* Bottom barcode section */
 .stickerBarcode {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  margin-top: 4px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 2px;
 }
 
 .stickerBarcode img {
   width: 100%;
   height: auto;
-  max-height: 130px;
-  object-fit: contain;
+  max-height: 100px;
+  object-fit: fill;
   display: block;
 }
 
 .stickerCode {
   font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 6.5px;
+  font-size: 6px;
   color: #333;
   margin-top: 2px;
   width: 100%;
@@ -100,44 +108,34 @@
   color: var(--primary-color);
 }
 
-/* Right info + logo strip */
-.stickerLogo {
-  width: 36px;
+/* ── Right dark strip: full rotated logo ──────────────────────── */
+.stickerRight {
+  width: 34px;
   background: #1c1c1c;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 4px;
+  justify-content: center;
   flex-shrink: 0;
-  gap: 4px;
-}
-
-/* Size + color text, rotated to read bottom-up */
-.stickerSideInfo {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  transform: rotate(180deg);
-  color: #fff;
-  font-size: 8px;
-  font-weight: 500;
-  letter-spacing: 0.3px;
-  white-space: nowrap;
   overflow: hidden;
+  padding: 0;
+  position: relative;
 }
 
-.stickerSideInfo span + span::before {
-  content: ' · ';
+.stickerLogoImg {
+  width: 196px;
+  height: 34px;
+  object-fit: cover;
+  display: block;
+  position: absolute;
+  transform: rotate(-90deg);
+  transform-origin: center center;
+  left: 50%;
+  top: 50%;
+  margin-left: -98px;
+  margin-top: -17px;
 }
 
-/* Logo image — fixed size in both preview and print */
-.stickerLogo img {
-  width: 30px;
-  height: 30px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
+/* Unused legacy classes */
+.stickerLogoBar { display: none; }
+.stickerLogo    { display: none; }
+.stickerSideInfo { display: none; }
