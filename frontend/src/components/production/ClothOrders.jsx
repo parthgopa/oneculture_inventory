@@ -159,7 +159,20 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
                         {workerStock && workerStock.filter(ws => ws.sku_name === item.sku_name).length > 0 && (
                           <button className={styles.workerBtn} onClick={() => navigate('/production?tab=workers')} title="View in Workers tab">
                             <MdPeople size={13} />
-                            {workerStock.filter(ws => ws.sku_name === item.sku_name).reduce((s, ws) => s + ws.quantity, 0)} with workers
+                            {(() => {
+                              const stock = workerStock.filter(ws => ws.sku_name === item.sku_name)
+                              const total = stock.reduce((s, ws) => s + ws.quantity, 0)
+                              // Group by color for display
+                              const byColor = {}
+                              stock.forEach(ws => {
+                                const color = ws.color || 'No Color'
+                                byColor[color] = (byColor[color] || 0) + ws.quantity
+                              })
+                              const colorBreakdown = Object.entries(byColor)
+                                .map(([color, qty]) => `${color}: ${qty}`)
+                                .join(', ')
+                              return `${total} with workers (${colorBreakdown})`
+                            })()}
                           </button>
                         )}
                       </div>

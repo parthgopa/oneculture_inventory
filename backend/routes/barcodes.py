@@ -46,41 +46,43 @@ def create_barcode_batch():
     sku_name = data.get('sku_name')
     mrp = data.get('mrp')
     size = data.get('size', '')
+    color = data.get('color', '')
     quantity = int(data.get('quantity', 1))
     product_image = data.get('product_image')  # Base64 image (optional)
-    
+
     if not all([company_name, sku_name, mrp]):
         return jsonify({'error': 'Missing required fields'}), 400
-    
+
     # Use pure numeric format for better scanner compatibility
     timestamp = datetime.now().strftime('%y%m%d%H%M%S')
     batch_id = f"B{timestamp}"
     created_barcodes = []
-    
+
     for i in range(quantity):
         barcode_id = f"{timestamp}{str(i+1).zfill(4)}"
-        
+
         barcode_doc = {
             'barcode_id': barcode_id,
             'company_name': company_name,
             'sku_name': sku_name,
             'mrp': float(mrp),
             'size': size,
+            'color': color,
             'batch_id': batch_id,
             'created_at': datetime.now()
         }
-        
+
         # Add product image to first barcode of batch (acts as batch metadata)
         if i == 0 and product_image:
             barcode_doc['product_image'] = product_image
-        
+
         result = barcodes_collection.insert_one(barcode_doc)
         barcode_doc['_id'] = str(result.inserted_id)
         barcode_doc['created_at'] = barcode_doc['created_at'].isoformat()
         if 'product_image' in barcode_doc:
             del barcode_doc['product_image']  # Don't return in response
         created_barcodes.append(barcode_doc)
-    
+
     return jsonify({
         'message': f'Created {quantity} barcodes',
         'batch_id': batch_id,
@@ -140,6 +142,8 @@ def get_all_batches():
                     '_id': '$batch_id',
                     'company_name': {'$first': '$company_name'},
                     'sku_name': {'$first': '$sku_name'},
+                    'size': {'$first': '$size'},
+                    'color': {'$first': '$color'},
                     'mrp': {'$first': '$mrp'},
                     'created_at': {'$first': '$created_at'},
                     'quantity': {'$sum': 1}
@@ -147,14 +151,14 @@ def get_all_batches():
             },
             {'$sort': {'created_at': -1}}
         ]
-        
+
         batches = list(barcodes_collection.aggregate(pipeline))
-        
+
         for batch in batches:
             batch['batch_id'] = batch.pop('_id')
             if batch.get('created_at'):
                 batch['created_at'] = batch['created_at'].isoformat()
-        
+
         return jsonify(batches), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -333,8 +337,10 @@ def generate_barcode_document(batch_id):
         <h1 style="margin:0 0 5px 0; font-size:14px;">{batch_info['sku_name']}</h1>
         <p style="margin:2px 0; font-size:9px; color:#666;">
             <b>Company:</b> {batch_info['company_name']} | 
-            <b>MRP:</b> Rs.{batch_info['mrp']:.2f} | 
-            <b>Batch:</b> {batch_id} | 
+            <b>MRP:</b> Rs.{batch_info['mrp']:.2f} |
+            {batch_info.get('size') and f"<b>Size:</b> {batch_info['size']} | " or ""}
+            {batch_info.get('color') and f"<b>Color:</b> {batch_info['color']} | " or ""}
+            <b>Batch:</b> {batch_id} |
             <b>Total:</b> {len(barcodes_list)}
         </p>
     </div>

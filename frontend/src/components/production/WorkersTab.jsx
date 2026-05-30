@@ -49,6 +49,7 @@ function WorkerDetailModal({ worker, onClose }) {
                 {data.current_holdings.map((h, i) => (
                   <div key={i} className={styles.holdingRow}>
                     <span className={styles.skuPill}>{h.sku_name}</span>
+                    {h.color && <span style={{ fontSize: 11, color: '#6366f1', background: '#eef2ff', padding: '2px 8px', borderRadius: 4, marginLeft: 8 }}>{h.color}</span>}
                     <div style={{ flex: 1 }} />
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 12 }}>
                       Received: {h.total_received} · Forwarded: {h.total_sent}
@@ -70,6 +71,7 @@ function WorkerDetailModal({ worker, onClose }) {
                 {data.completed_skus.map((c, i) => (
                   <div key={i} className={styles.holdingRow}>
                     <span className={styles.skuPill}>{c.sku_name}</span>
+                    {c.color && <span style={{ fontSize: 11, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: 4, marginLeft: 8 }}>{c.color}</span>}
                     <div style={{ flex: 1 }} />
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 12 }}>
                       {c.total_received} pcs · {c.last_date ? new Date(c.last_date).toLocaleDateString() : ''}
@@ -92,7 +94,10 @@ function WorkerDetailModal({ worker, onClose }) {
                   <div key={i} className={styles.activityRow}>
                     <div className={styles.activityDot} style={{ background: STAGE_COLORS[e.stage] || '#94a3b8' }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{e.sku_name}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {e.sku_name}
+                        {e.color && <span style={{ fontSize: 10, color: '#6366f1', background: '#eef2ff', padding: '1px 6px', borderRadius: 4 }}>{e.color}</span>}
+                      </div>
                       <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{e.from_entity}</span>
                         <span style={{ color: '#6366f1', fontWeight: 800, fontSize: 13, lineHeight: 1 }}>→</span>
@@ -206,7 +211,7 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
           <div className={styles.skuList}>
             {holding.map((h, i) => (
               <div key={i} className={styles.skuRow}>
-                <span>{h.sku_name}</span>
+                <span>{h.sku_name}{h.color && <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({h.color})</span>}</span>
                 <span>{h.quantity} pcs</span>
               </div>
             ))}

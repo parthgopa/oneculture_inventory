@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../config'
 import {
@@ -7,7 +7,8 @@ import {
   MdError,
   MdAdd,
   MdHistory,
-  MdVisibility
+  MdVisibility,
+  MdImage
 } from 'react-icons/md'
 import ImageUpload from '../ImageUpload'
 
@@ -18,16 +19,19 @@ function GenerateBarcode({ readyItems = [] }) {
     company_name: 'ONėCULTURE',
     sku_name: '',
     size: '',
+    color: '',
     mrp: '',
     quantity: 1,
   })
 
+  const [availableColors, setAvailableColors] = useState([])
   const [productImage, setProductImage]   = useState(null)
   const [generating, setGenerating]       = useState(false)
   const [message, setMessage]             = useState(null)
   const [generatedBatch, setGeneratedBatch] = useState(null)
   const [batchHistory, setBatchHistory]   = useState([])
   const [loadingHistory, setLoadingHistory] = useState(true)
+  const [skuCatalogImages, setSkuCatalogImages] = useState({})
 
   useEffect(() => {
     fetchBatchHistory()
@@ -50,16 +54,72 @@ function GenerateBarcode({ readyItems = [] }) {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
+  // Fetch available colors and clear product image when SKU changes
+  useEffect(() => {
+    if (!formData.sku_name) {
+      setAvailableColors([])
+      setProductImage(null)
+      return
+    }
+    apiFetch(`/api/production/sku-colors?sku_name=${encodeURIComponent(formData.sku_name)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.colors) setAvailableColors(data.colors)
+      })
+      .catch(() => setAvailableColors([]))
+  }, [formData.sku_name])
+
+  // Fetch SKU image from catalog when selecting an item
+  const fetchSkuImage = async (skuName) => {
+    try {
+      const response = await apiFetch(`/api/skus/${encodeURIComponent(skuName)}`)
+      if (response.ok) {
+        const data = await response.json()
+        setProductImage(data.image || null)
+      }
+    } catch (error) {
+      console.error('Error fetching SKU image:', error)
+    }
+  }
+
+  // Fetch SKU catalog images for all ready items
+  useEffect(() => {
+    const fetchAllSkuImages = async () => {
+      const uniqueSkus = [...new Set(readyItems.map(item => item.sku_name).filter(Boolean))]
+      const images = {}
+      for (const sku of uniqueSkus) {
+        try {
+          const response = await apiFetch(`/api/skus/${encodeURIComponent(sku)}`)
+          if (response.ok) {
+            const data = await response.json()
+            if (data.image) images[sku] = data.image
+          }
+        } catch (error) {
+          // Silently fail for individual SKUs
+        }
+      }
+      setSkuCatalogImages(images)
+    }
+    if (readyItems.length > 0) {
+      fetchAllSkuImages()
+    }
+  }, [readyItems])
+
   const handleReadyItemSelect = (item) => {
     setFormData({
       company_name: 'ONėCULTURE',
       sku_name: item.sku_name || '',
       size: item.size || '',
+      color: item.color || '',
       mrp: item.mrp ? String(item.mrp) : '',
       quantity: item.quantity || 1,
     })
     setMessage(null)
     setGeneratedBatch(null)
+    // Fetch SKU image from catalog
+    if (item.sku_name) {
+      fetchSkuImage(item.sku_name)
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -91,15 +151,12 @@ function GenerateBarcode({ readyItems = [] }) {
           company_name: 'ONėCULTURE',
           sku_name: '',
           size: '',
+          color: '',
           mrp: '',
           quantity: 1,
         })
         setProductImage(null)
         fetchBatchHistory()
-
-        setTimeout(() => {
-          navigate(`/batch/${data.batch_id}`)
-        }, 1500)
       } else {
         setMessage({
           type: 'error',
@@ -122,37 +179,60 @@ function GenerateBarcode({ readyItems = [] }) {
 
   return (
     <div>
-      {/* Quick-fill from ready items */}
-      {readyItems.length > 0 && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div className="card-header">
-            <h3 className="card-title">
-              <MdCheckCircle size={18} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--success-color)' }} />
-              Ready for Barcode
-            </h3>
-          </div>
-          <div style={{ padding: '0 16px 16px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {readyItems.map((item, i) => (
-              <button
-                key={i}
-                className="btn btn-outline"
-                style={{ fontSize: 12, padding: '5px 12px' }}
-                onClick={() => handleReadyItemSelect(item)}
-              >
-                <MdQrCode2 size={14} /> {item.sku_name}
-                {item.size ? ` · ${item.size}` : ''}
-                {item.quantity ? ` · ${item.quantity} pcs` : ''}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Quick-fill from ready items - filter out items already generated */}
+      {(() => {
+        // Filter out items that already have barcodes generated (match by sku_name + color)
+        const generatedKeys = new Set(batchHistory.map(b => `${b.sku_name}__${b.color || ''}`))
+        const filteredReadyItems = readyItems.filter(item => {
+          const key = `${item.sku_name}__${item.color || ''}`
+          return !generatedKeys.has(key)
+        })
 
-      <div className="grid-2">
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">Generate New Batch</h2>
+        if (filteredReadyItems.length === 0) return null
+
+        return (
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-header">
+              <h3 className="card-title">
+                <MdCheckCircle size={18} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--success-color)' }} />
+                Ready for Barcode
+              </h3>
+            </div>
+            <div style={{ padding: '0 16px 16px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {filteredReadyItems.map((item, i) => {
+                const skuImage = skuCatalogImages[item.sku_name]
+                return (
+                  <button
+                    key={i}
+                    className="btn btn-outline"
+                    style={{ fontSize: 12, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 6 }}
+                    onClick={() => handleReadyItemSelect(item)}
+                  >
+                    {skuImage ? (
+                      <img
+                        src={skuImage}
+                        alt={item.sku_name}
+                        style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <MdImage size={14} color="var(--text-secondary)" />
+                    )}
+                    <span>{item.sku_name}</span>
+                    {item.size ? ` · ${item.size}` : ''}
+                    {item.color ? ` · ${item.color}` : ''}
+                    {item.quantity ? ` · ${item.quantity} pcs` : ''}
+                  </button>
+                )
+              })}
+            </div>
           </div>
+        )
+      })()}
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header">
+          <h2 className="card-title">Generate New Batch</h2>
+        </div>
 
           {message && (
             <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'}`}>
@@ -205,6 +285,38 @@ function GenerateBarcode({ readyItems = [] }) {
             </div>
 
             <div className="form-group">
+              <label className="form-label">Color</label>
+              {availableColors.length > 0 ? (
+                <select
+                  name="color"
+                  className="form-input"
+                  value={formData.color}
+                  onChange={handleInputChange}
+                >
+                  <option value="">Select Color...</option>
+                  <option value="">No Color / Plain</option>
+                  {availableColors.map((color, i) => (
+                    <option key={i} value={color}>{color}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  name="color"
+                  className="form-input"
+                  placeholder="e.g. Red, Blue, Green..."
+                  value={formData.color}
+                  onChange={handleInputChange}
+                />
+              )}
+              {formData.sku_name && availableColors.length === 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                  No colors found for this SKU in cloth orders. Type manually.
+                </div>
+              )}
+            </div>
+
+            <div className="form-group">
               <label className="form-label">MRP (₹) *</label>
               <input
                 type="number"
@@ -238,6 +350,11 @@ function GenerateBarcode({ readyItems = [] }) {
               <label className="form-label">
                 Product Image <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(optional)</span>
               </label>
+              {productImage && formData.sku_name && (
+                <div style={{ fontSize: 11, color: 'var(--success-color)', marginBottom: 6 }}>
+                  <MdCheckCircle size={12} /> Auto-loaded from SKU catalog
+                </div>
+              )}
               <ImageUpload
                 currentImage={productImage}
                 onImageChange={setProductImage}
@@ -262,50 +379,27 @@ function GenerateBarcode({ readyItems = [] }) {
           </form>
         </div>
 
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">Generated Batch</h2>
-          </div>
-
-          {generatedBatch ? (
-            <div>
-              <div className="alert alert-success">
-                <MdCheckCircle size={24} />
-                <div>
-                  <div><strong>Batch Created Successfully!</strong></div>
-                  <div style={{ marginTop: 4, fontSize: 14 }}>
-                    {generatedBatch.barcodes.length} barcodes generated
-                  </div>
+        {/* Success message after generation */}
+        {generatedBatch && (
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="alert alert-success" style={{ margin: 0 }}>
+              <MdCheckCircle size={24} />
+              <div>
+                <div><strong>Batch Created Successfully!</strong></div>
+                <div style={{ marginTop: 4, fontSize: 14 }}>
+                  {generatedBatch.barcodes.length} barcodes generated • Batch ID: <code>{generatedBatch.batch_id}</code>
                 </div>
-              </div>
-
-              <div style={{ marginTop: 20, padding: 16, background: 'var(--bg-secondary)', borderRadius: 8 }}>
-                <div style={{ marginBottom: 12 }}>
-                  <strong>Batch ID:</strong> <code>{generatedBatch.batch_id}</code>
-                </div>
-                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>
-                  Redirecting to batch details page...
-                </p>
                 <button
                   onClick={() => handleViewDetails(generatedBatch.batch_id)}
                   className="btn btn-primary"
-                  style={{ width: '100%' }}
+                  style={{ marginTop: 12 }}
                 >
-                  <MdVisibility size={20} /> View Batch Details
+                  <MdVisibility size={18} /> View Batch Details
                 </button>
               </div>
             </div>
-          ) : (
-            <div className="empty-state">
-              <div className="empty-state-icon"><MdQrCode2 size={64} /></div>
-              <div className="empty-state-title">No batch generated yet</div>
-              <div className="empty-state-description">
-                Fill the form and generate barcodes to see details here
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
 
       {/* Batch History */}
       <div className="card" style={{ marginTop: 24 }}>
@@ -327,6 +421,7 @@ function GenerateBarcode({ readyItems = [] }) {
                 <tr>
                   <th>Batch ID</th>
                   <th>SKU</th>
+                  <th>Size/Color</th>
                   <th>MRP</th>
                   <th>Quantity</th>
                   <th>Created</th>
@@ -338,6 +433,10 @@ function GenerateBarcode({ readyItems = [] }) {
                   <tr key={batch.batch_id}>
                     <td><code>{batch.batch_id}</code></td>
                     <td><strong>{batch.sku_name}</strong></td>
+                    <td>
+                      {batch.size && <span className="badge" style={{background: '#e0e7ff', color: '#4338ca', marginRight: 4}}>{batch.size}</span>}
+                      {batch.color && <span className="badge" style={{background: '#fce7f3', color: '#be185d'}}>{batch.color}</span>}
+                    </td>
                     <td>₹{batch.mrp?.toFixed(2)}</td>
                     <td><span className="badge badge-primary">{batch.quantity}</span></td>
                     <td>{new Date(batch.created_at).toLocaleDateString()}</td>

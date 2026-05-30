@@ -14,19 +14,31 @@ inventory_bp = Blueprint('inventory', __name__)
 @inventory_bp.route('/api/inventory', methods=['GET'])
 def get_inventory():
     """
-    Get inventory grouped by product (SKU + Company).
+    Get inventory grouped by product (SKU + Color + Company).
     Shows products that have been scanned at least once.
     OPTIMIZED: Does not load images - use separate endpoint for images.
     """
     try:
-        # Aggregate by product (sku_name + company_name) with stock calculations
-        pipeline = [
-            # First get all scan events grouped by barcode
+        # First get all scan events with their barcode details
+        scan_pipeline = [
+            # Lookup barcode details to get color
+            {
+                '$lookup': {
+                    'from': 'barcodes',
+                    'localField': 'barcode_id',
+                    'foreignField': 'barcode_id',
+                    'as': 'barcode_info'
+                }
+            },
+            # Unwind the barcode info array (should be 1:1)
+            {'$unwind': {'path': '$barcode_info', 'preserveNullAndEmptyArrays': True}},
+            # Group by barcode_id with color
             {
                 '$group': {
                     '_id': '$barcode_id',
                     'company_name': {'$first': '$company_name'},
                     'sku_name': {'$first': '$sku_name'},
+                    'color': {'$first': {'$ifNull': ['$barcode_info.color', '']}},
                     'total_in': {
                         '$sum': {'$cond': [{'$eq': ['$action_type', 'IN']}, 1, 0]}
                     },
@@ -44,11 +56,12 @@ def get_inventory():
                     'current_stock': {'$subtract': ['$total_in', '$total_out']}
                 }
             },
-            # Now group by product (sku + company)
+            # Now group by product (sku + color + company)
             {
                 '$group': {
                     '_id': {
                         'sku_name': '$sku_name',
+                        'color': '$color',
                         'company_name': '$company_name'
                     },
                     'barcodes': {'$push': '$_id'},
@@ -66,6 +79,7 @@ def get_inventory():
                 '$project': {
                     '_id': 0,
                     'sku_name': '$_id.sku_name',
+                    'color': '$_id.color',
                     'company_name': '$_id.company_name',
                     'barcodes': 1,
                     'barcode_count': 1,
@@ -92,41 +106,43 @@ def get_inventory():
             },
             {'$sort': {'last_scanned': -1}}
         ]
-        
-        products = list(scan_events_collection.aggregate(pipeline))
-        
+
+        products = list(scan_events_collection.aggregate(scan_pipeline))
+
         # Get MRP and batch_id from barcodes collection (NO IMAGES - too slow)
-        # Batch lookup for better performance
         all_barcodes = []
         for product in products:
             if product['barcodes']:
                 all_barcodes.append(product['barcodes'][0])
-        
+
         # Single query to get all barcode docs
         barcode_docs = {
-            doc['barcode_id']: doc 
+            doc['barcode_id']: doc
             for doc in barcodes_collection.find(
                 {'barcode_id': {'$in': all_barcodes}},
-                {'barcode_id': 1, 'mrp': 1, 'batch_id': 1}  # No product_image
+                {'barcode_id': 1, 'mrp': 1, 'batch_id': 1, 'color': 1}
             )
         }
-        
+
         for product in products:
             if product['barcodes']:
                 barcode_doc = barcode_docs.get(product['barcodes'][0])
                 if barcode_doc:
                     product['mrp'] = barcode_doc.get('mrp', 0)
                     product['batch_id'] = barcode_doc.get('batch_id', '')
+                    # Use color from barcode if not already set
+                    if not product.get('color') and barcode_doc.get('color'):
+                        product['color'] = barcode_doc.get('color')
                 else:
                     product['mrp'] = 0
                     product['batch_id'] = ''
-            
+
             # Format dates
             if product.get('last_scanned'):
                 product['last_scanned'] = product['last_scanned'].isoformat()
             if product.get('first_scanned'):
                 product['first_scanned'] = product['first_scanned'].isoformat()
-        
+
         return jsonify(products), 200
     except Exception as e:
         print(f"[INVENTORY] Error: {str(e)}")
@@ -136,28 +152,29 @@ def get_inventory():
 @inventory_bp.route('/api/inventory/product-images', methods=['GET'])
 def get_all_product_images():
     """
-    Return all product images in one query keyed by 'sku_name__company_name'.
+    Return all product images in one query keyed by 'sku_name__color__company_name'.
     Single aggregation replaces N per-product image requests on the inventory page.
     """
     try:
-        # One aggregation: for each (sku_name, company_name) pair find the first
+        # One aggregation: for each (sku_name, color, company_name) pair find the first
         # barcode doc in the batch that carries a product_image field.
         pipeline = [
             {'$match': {'product_image': {'$exists': True, '$ne': None}}},
             {'$group': {
-                '_id': {'sku_name': '$sku_name', 'company_name': '$company_name'},
+                '_id': {'sku_name': '$sku_name', 'color': '$color', 'company_name': '$company_name'},
                 'image': {'$first': '$product_image'}
             }},
             {'$project': {
                 '_id': 0,
                 'sku_name': '$_id.sku_name',
+                'color': '$_id.color',
                 'company_name': '$_id.company_name',
                 'image': 1
             }}
         ]
         results = list(barcodes_collection.aggregate(pipeline))
-        # Key by "sku_name__company_name" for easy frontend lookup
-        images = {f"{r['sku_name']}__{r['company_name']}": r['image'] for r in results}
+        # Key by "sku_name__color__company_name" for easy frontend lookup
+        images = {f"{r['sku_name']}__{r.get('color', '')}__{r['company_name']}": r['image'] for r in results}
         return jsonify(images), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -267,12 +284,15 @@ def get_product_details(sku_name):
     """
     try:
         company_name = request.args.get('company')
-        
-        # Find all barcodes for this product
+        color = request.args.get('color', '').strip()
+
+        # Find all barcodes for this product (optionally filtered by color)
         query = {'sku_name': sku_name}
         if company_name:
             query['company_name'] = company_name
-        
+        if color:
+            query['color'] = color
+
         barcodes = list(barcodes_collection.find(query))
         
         if not barcodes:
@@ -298,6 +318,7 @@ def get_product_details(sku_name):
                 'barcode_id': bc_id,
                 'batch_id': bc.get('batch_id', ''),
                 'mrp': bc.get('mrp', 0),
+                'color': bc.get('color', ''),
                 'created_at': bc.get('created_at').isoformat() if bc.get('created_at') else None,
                 'in_count': in_count,
                 'out_count': out_count,
@@ -325,6 +346,7 @@ def get_product_details(sku_name):
         return jsonify({
             'sku_name': sku_name,
             'company_name': barcodes[0]['company_name'],
+            'color': barcodes[0].get('color', ''),
             'mrp': barcodes[0].get('mrp', 0),
             'batch_id': barcodes[0].get('batch_id', ''),
             'product_image': product_image,
@@ -370,14 +392,15 @@ def export_product_csv(sku_name):
         # Header info
         writer.writerow(['Product Inventory Export'])
         writer.writerow(['SKU Name', sku_name])
+        writer.writerow(['Color', barcodes[0].get('color', '')])
         writer.writerow(['Company', barcodes[0]['company_name']])
         writer.writerow(['MRP', barcodes[0].get('mrp', 0)])
         writer.writerow(['Export Date', datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
         writer.writerow([])
-        
+
         # Barcode summary
         writer.writerow(['=== BARCODE SUMMARY ==='])
-        writer.writerow(['Barcode ID', 'Batch ID', 'Stock In', 'Stock Out', 'Current Stock', 'Total Scans', 'Last Scanned'])
+        writer.writerow(['Barcode ID', 'Batch ID', 'Color', 'Stock In', 'Stock Out', 'Current Stock', 'Total Scans', 'Last Scanned'])
         
         for bc in barcodes:
             bc_id = bc['barcode_id']
@@ -393,6 +416,7 @@ def export_product_csv(sku_name):
             writer.writerow([
                 bc_id,
                 bc.get('batch_id', ''),
+                bc.get('color', ''),
                 in_count,
                 out_count,
                 in_count - out_count,
@@ -455,6 +479,7 @@ def get_barcode_details(barcode_id):
             'barcode_id': barcode_id,
             'company_name': barcode_doc['company_name'],
             'sku_name': barcode_doc['sku_name'],
+            'color': barcode_doc.get('color', ''),
             'mrp': barcode_doc.get('mrp', 0),
             'batch_id': barcode_doc.get('batch_id', ''),
             'created_at': barcode_doc.get('created_at').isoformat() if barcode_doc.get('created_at') else None,
@@ -520,10 +545,15 @@ def get_inventory_summary():
         
         # Get total barcodes created
         total_barcodes_created = barcodes_collection.count_documents({})
-        
-        # Get unique products count
-        unique_products = len(barcodes_collection.distinct('sku_name'))
-        
+
+        # Get unique (sku_name, color) combinations count
+        unique_pipeline = [
+            {'$group': {'_id': {'sku_name': '$sku_name', 'color': '$color'}}},
+            {'$count': 'unique_count'}
+        ]
+        unique_result = list(barcodes_collection.aggregate(unique_pipeline))
+        unique_products = unique_result[0]['unique_count'] if unique_result else 0
+
         if result:
             stats = result[0]
             return jsonify({
@@ -605,34 +635,38 @@ def admin_adjust_stock():
 def delete_product(sku_name):
     """
     Delete a product and all its associated data:
-    - All barcodes for this product
+    - All barcodes for this product (optionally filtered by color)
     - All scan events for those barcodes
     """
     try:
         company_name = request.args.get('company')
-        
+        color = request.args.get('color', '').strip()
+
         query = {'sku_name': sku_name}
         if company_name:
             query['company_name'] = company_name
-        
+        if color:
+            query['color'] = color
+
         # Find all barcodes for this product
         barcodes = list(barcodes_collection.find(query, {'barcode_id': 1}))
         barcode_ids = [bc['barcode_id'] for bc in barcodes]
-        
+
         if not barcode_ids:
             return jsonify({'error': 'Product not found'}), 404
-        
+
         # Delete all scan events for these barcodes
         scan_delete_result = scan_events_collection.delete_many({
             'barcode_id': {'$in': barcode_ids}
         })
-        
+
         # Delete all barcodes for this product
         barcode_delete_result = barcodes_collection.delete_many(query)
-        
+
         return jsonify({
             'message': 'Product deleted successfully',
             'sku_name': sku_name,
+            'color': color,
             'barcodes_deleted': barcode_delete_result.deleted_count,
             'scan_events_deleted': scan_delete_result.deleted_count
         }), 200

@@ -26,8 +26,9 @@ function ProductDetails() {
   const { skuName } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  
+
   const companyName = searchParams.get('company') || ''
+  const color = searchParams.get('color') || ''
   
   // ── state ────────────────────────────────────────────────────────────────────
   const [loading, setLoading]         = useState(true)
@@ -44,12 +45,13 @@ function ProductDetails() {
   // ── data fetching ────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchProductDetails()
-  }, [skuName, companyName])
+  }, [skuName, companyName, color])
 
   const fetchProductDetails = async () => {
     try {
       setLoading(true)
-      const response = await apiFetch(`/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}`)
+      const colorParam = color ? `&color=${encodeURIComponent(color)}` : ''
+      const response = await apiFetch(`/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}${colorParam}`)
       
       if (!response.ok) {
         throw new Error('Product not found')
@@ -92,7 +94,8 @@ function ProductDetails() {
 
   // ── CSV export ───────────────────────────────────────────────────────────────
   const handleExportCSV = () => {
-    apiFetch(`/api/inventory/product/${encodeURIComponent(skuName)}/export?company=${encodeURIComponent(companyName)}`)
+    const colorParam = color ? `&color=${encodeURIComponent(color)}` : ''
+    apiFetch(`/api/inventory/product/${encodeURIComponent(skuName)}/export?company=${encodeURIComponent(companyName)}${colorParam}`)
       .then(r => r.blob())
       .then(blob => {
         const a = document.createElement('a')
@@ -106,8 +109,9 @@ function ProductDetails() {
   const handleDeleteProduct = async () => {
     setDeleting(true)
     try {
+      const colorParam = color ? `&color=${encodeURIComponent(color)}` : ''
       const response = await apiFetch(
-        `/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}`,
+        `/api/inventory/product/${encodeURIComponent(skuName)}?company=${encodeURIComponent(companyName)}${colorParam}`,
         { method: 'DELETE' }
       )
       
@@ -135,6 +139,7 @@ function ProductDetails() {
 
   const handlePrintBarcode = (barcodeId) => {
     const printWindow = window.open('', '_blank')
+    const colorDisplay = productData.color ? `<div class="color" style="font-size: 14px; color: #6366f1; margin-bottom: 10px; font-weight: 600;">Color: ${productData.color}</div>` : ''
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -169,7 +174,13 @@ function ProductDetails() {
             .company-name {
               font-size: 16px;
               color: #666;
-              margin-bottom: 20px;
+              margin-bottom: 10px;
+            }
+            .color {
+              font-size: 14px;
+              color: #6366f1;
+              margin-bottom: 15px;
+              font-weight: 600;
             }
             .mrp {
               font-size: 20px;
@@ -188,6 +199,7 @@ function ProductDetails() {
           <div class="barcode-container">
             <div class="product-name">${productData.sku_name}</div>
             <div class="company-name">${productData.company_name}</div>
+            ${colorDisplay}
             <svg id="barcode"></svg>
             <div class="mrp">MRP: ₹${productData.mrp.toFixed(2)}</div>
           </div>
@@ -264,7 +276,9 @@ function ProductDetails() {
             {productData.sku_name}
           </h1>
           <p className="page-subtitle">
-            {productData.company_name} • MRP: ₹{productData.mrp?.toFixed(2)}
+            {productData.company_name}
+            {productData.color && <span style={{color: '#6366f1', fontWeight: 600}}> • Color: {productData.color}</span>}
+            {' • MRP: ₹'}{productData.mrp?.toFixed(2)}
           </p>
         </div>
 
@@ -311,10 +325,11 @@ function ProductDetails() {
             </div>
             
             <p style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
-              Are you sure you want to delete <strong>{productData.sku_name}</strong>?
+              Are you sure you want to delete <strong>{productData.sku_name}</strong>
+              {productData.color && <span style={{color: '#6366f1'}}> ({productData.color})</span>}?
             </p>
             <p style={{ color: 'var(--danger-color)', fontSize: 14, marginBottom: 20 }}>
-              This will permanently delete all {productData.total_barcodes} barcodes and their scan history. 
+              This will permanently delete all {productData.total_barcodes} barcodes and their scan history.
               This action cannot be undone.
             </p>
             
@@ -709,6 +724,7 @@ function ProductDetails() {
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
                   {productData.sku_name}
+                  {productData.color && <span style={{color: '#6366f1', marginLeft: 6}}>• Color: {productData.color}</span>}
                 </p>
               </div>
               <button

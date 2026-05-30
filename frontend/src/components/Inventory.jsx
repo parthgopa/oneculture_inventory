@@ -89,16 +89,18 @@ function Inventory() {
   }
 
   const handleViewDetails = (product) => {
-    navigate(`/product/${encodeURIComponent(product.sku_name)}?company=${encodeURIComponent(product.company_name)}`)
+    const colorParam = product.color ? `&color=${encodeURIComponent(product.color)}` : ''
+    navigate(`/product/${encodeURIComponent(product.sku_name)}?company=${encodeURIComponent(product.company_name)}${colorParam}`)
   }
 
-  // ── filtering (search by product name OR barcode) ────────────────────────────
+  // ── filtering (search by product name, color, OR barcode) ────────────────────
   const filteredInventory = useMemo(() => {
     return inventory.filter(item => {
       const term = searchTerm.toLowerCase()
-      // Search by SKU name OR any barcode in the barcodes array
-      const matchesSearch = 
+      // Search by SKU name, color, OR any barcode in the barcodes array
+      const matchesSearch =
         item.sku_name?.toLowerCase().includes(term) ||
+        item.color?.toLowerCase().includes(term) ||
         item.barcodes?.some(bc => bc.toLowerCase().includes(term))
 
       if (filterStock === 'all') return matchesSearch
@@ -281,15 +283,15 @@ function Inventory() {
               <tbody>
                 {paginatedInventory.map((item) => {
                   const status = getStockStatus(item.total_stock)
-                  const imageKey = `${item.sku_name}__${item.company_name}`
+                  const imageKey = `${item.sku_name}__${item.color || ''}__${item.company_name}`
                   const productImage = productImages[imageKey]
-                  
+
                   return (
-                    <tr key={item.sku_name + item.company_name}>
+                    <tr key={item.sku_name + (item.color || '') + item.company_name}>
                       <td>
                         {productImage ? (
-                          <img 
-                            src={productImage} 
+                          <img
+                            src={productImage}
                             alt={item.sku_name}
                             className={styles.productImage}
                             onClick={() => setSelectedImage(productImage)}
@@ -301,7 +303,14 @@ function Inventory() {
                           </div>
                         )}
                       </td>
-                      <td><strong>{item.sku_name}</strong></td>
+                      <td>
+                        <strong>{item.sku_name}</strong>
+                        {item.color && (
+                          <div style={{ fontSize: 11, color: '#6366f1', marginTop: 2 }}>
+                            Color: {item.color}
+                          </div>
+                        )}
+                      </td>
                       <td>₹{(item.mrp || 0).toFixed(2)}</td>
                       {/* <td><span className="badge badge-primary">{item.barcode_count}</span></td> */}
                       <td><span className={styles.stockIn}>+{item.total_in}</span></td>

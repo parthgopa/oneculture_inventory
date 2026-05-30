@@ -28,10 +28,10 @@ def serialize(doc):
 
 # ── Ledger Helper ─────────────────────────────────────────────────────────────
 
-def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None):
+def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None, color=None):
     """
     Current holding = total received by entity - total sent by entity.
-    Filtered optionally by sku_name, order_id, item_id.
+    Filtered optionally by sku_name, order_id, item_id, color.
     """
     def build_match(direction_key):
         q = {direction_key: entity}
@@ -41,6 +41,8 @@ def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None):
             q['order_id'] = order_id
         if item_id:
             q['item_id'] = item_id
+        if color is not None:
+            q['color'] = color
         return q
 
     in_res = list(work_ledger_collection.aggregate([
@@ -55,35 +57,35 @@ def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None):
 
 
 def compute_all_worker_stock():
-    """Compute current holding per (worker, sku) - excludes 'company' and supplier entities"""
+    """Compute current holding per (worker, sku, color) - excludes 'company' and supplier entities"""
     if work_ledger_collection.count_documents({}) == 0:
         return []
 
     pipeline = [
         {'$facet': {
             'received': [{'$group': {
-                '_id': {'entity': '$to_entity', 'sku': '$sku_name'},
+                '_id': {'entity': '$to_entity', 'sku': '$sku_name', 'color': '$color'},
                 'total': {'$sum': '$quantity'}
             }}],
             'sent': [{'$group': {
-                '_id': {'entity': '$from_entity', 'sku': '$sku_name'},
+                '_id': {'entity': '$from_entity', 'sku': '$sku_name', 'color': '$color'},
                 'total': {'$sum': '$quantity'}
             }}]
         }}
     ]
     result = list(work_ledger_collection.aggregate(pipeline))[0]
-    received_map = {(r['_id']['entity'], r['_id']['sku']): r['total'] for r in result['received']}
-    sent_map = {(s['_id']['entity'], s['_id']['sku']): s['total'] for s in result['sent']}
+    received_map = {(r['_id']['entity'], r['_id']['sku'], r['_id'].get('color') or ''): r['total'] for r in result['received']}
+    sent_map = {(s['_id']['entity'], s['_id']['sku'], s['_id'].get('color') or ''): s['total'] for s in result['sent']}
 
     all_keys = set(list(received_map.keys()) + list(sent_map.keys()))
     holdings = []
-    for (entity, sku) in all_keys:
+    for (entity, sku, color) in all_keys:
         if not entity or entity.lower() in ('company',) or entity.lower().startswith('supplier'):
             continue
-        holding = received_map.get((entity, sku), 0) - sent_map.get((entity, sku), 0)
+        holding = received_map.get((entity, sku, color), 0) - sent_map.get((entity, sku, color), 0)
         if holding > 0:
-            holdings.append({'worker_name': entity, 'sku_name': sku, 'quantity': holding})
-    holdings.sort(key=lambda x: x['worker_name'])
+            holdings.append({'worker_name': entity, 'sku_name': sku, 'color': color or '', 'quantity': holding})
+    holdings.sort(key=lambda x: (x['worker_name'], x['sku_name'], x['color']))
     return holdings
 
 
@@ -369,6 +371,7 @@ def transfer_work():
         from_worker = (data.get('from_worker') or '').strip()
         to_worker = (data.get('to_worker') or '').strip()
         sku_name = (data.get('sku_name') or '').strip()
+        color = (data.get('color') or '').strip()
         quantity = int(data.get('quantity') or 0)
         work_type = (data.get('work_type') or 'Additional Work').strip()
         notes = (data.get('notes') or '').strip()
@@ -380,10 +383,11 @@ def transfer_work():
         if from_worker == to_worker:
             return jsonify({'error': 'Cannot transfer to the same worker'}), 400
 
-        available = get_entity_holding(from_worker, sku_name=sku_name)
+        available = get_entity_holding(from_worker, sku_name=sku_name, color=color)
         if available < quantity:
+            color_msg = f' ({color})' if color else ''
             return jsonify({
-                'error': f'{from_worker} only has {available} pieces of "{sku_name}" available'
+                'error': f'{from_worker} only has {available} pieces of "{sku_name}"{color_msg} available'
             }), 400
 
         date_str = (data.get('date') or '').strip()
@@ -397,6 +401,7 @@ def transfer_work():
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
+            'color': color,
             'from_entity': from_worker,
             'to_entity': to_worker,
             'quantity': quantity,
@@ -405,7 +410,8 @@ def transfer_work():
             'notes': notes,
             'created_at': entry_date
         })
-        return jsonify({'message': f'Transferred {quantity} pieces of "{sku_name}" from {from_worker} to {to_worker}'}), 201
+        color_msg = f' ({color})' if color else ''
+        return jsonify({'message': f'Transferred {quantity} pieces of "{sku_name}"{color_msg} from {from_worker} to {to_worker}'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -419,6 +425,7 @@ def receive_final():
         data = request.json
         worker_name = (data.get('worker_name') or '').strip()
         sku_name = (data.get('sku_name') or '').strip()
+        color = (data.get('color') or '').strip()
         quantity = int(data.get('quantity') or 0)
         order_id = (data.get('order_id') or '').strip()
         item_id = (data.get('item_id') or '').strip()
@@ -428,10 +435,11 @@ def receive_final():
         if not worker_name or not sku_name or quantity <= 0:
             return jsonify({'error': 'Worker, SKU, and quantity are required'}), 400
 
-        available = get_entity_holding(worker_name, sku_name=sku_name)
+        available = get_entity_holding(worker_name, sku_name=sku_name, color=color)
         if available < quantity:
+            color_msg = f' ({color})' if color else ''
             return jsonify({
-                'error': f'{worker_name} only has {available} pieces of "{sku_name}" available'
+                'error': f'{worker_name} only has {available} pieces of "{sku_name}"{color_msg} available'
             }), 400
 
         date_str = (data.get('date') or '').strip()
@@ -445,6 +453,7 @@ def receive_final():
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
+            'color': color,
             'from_entity': worker_name,
             'to_entity': 'company',
             'quantity': quantity,
@@ -481,6 +490,7 @@ def return_to_supplier():
         data = request.json
         from_entity = (data.get('from_entity') or '').strip()
         sku_name    = (data.get('sku_name') or '').strip()
+        color       = (data.get('color') or '').strip()
         quantity    = int(data.get('quantity') or 0)
         supplier    = (data.get('supplier_name') or 'Supplier').strip()
         notes       = (data.get('notes') or '').strip()
@@ -491,10 +501,11 @@ def return_to_supplier():
         if not from_entity or not sku_name or quantity <= 0:
             return jsonify({'error': 'from_entity, sku_name, and quantity are required'}), 400
 
-        available = get_entity_holding(from_entity, sku_name=sku_name)
+        available = get_entity_holding(from_entity, sku_name=sku_name, color=color)
         if available < quantity:
+            color_msg = f' ({color})' if color else ''
             return jsonify({
-                'error': f'"{from_entity}" only has {available} pieces of "{sku_name}" available'
+                'error': f'"{from_entity}" only has {available} pieces of "{sku_name}"{color_msg} available'
             }), 400
 
         created_at = datetime.now()
@@ -509,6 +520,7 @@ def return_to_supplier():
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
+            'color': color,
             'from_entity': from_entity,
             'to_entity': supplier,
             'quantity': quantity,
@@ -517,7 +529,8 @@ def return_to_supplier():
             'notes': notes or f'Returned to {supplier}',
             'created_at': created_at
         })
-        return jsonify({'message': f'Returned {quantity} pieces of "{sku_name}" from {from_entity} to {supplier}'}), 201
+        color_msg = f' ({color})' if color else ''
+        return jsonify({'message': f'Returned {quantity} pieces of "{sku_name}"{color_msg} from {from_entity} to {supplier}'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -633,12 +646,12 @@ def get_ledger():
 
 @production_bp.route('/api/production/ready-for-barcode', methods=['GET'])
 def get_ready_for_barcode():
-    """Items that have been final-received at company but barcodes not yet generated."""
+    """Items that have been final-received at company but barcodes not yet generated. Grouped by (sku_name, color)."""
     try:
         pipeline = [
             {'$match': {'stage': 'final_received', 'to_entity': 'company'}},
             {'$group': {
-                '_id': '$sku_name',
+                '_id': {'sku_name': '$sku_name', 'color': '$color'},
                 'total_received': {'$sum': '$quantity'},
                 'mrp': {'$last': '$mrp'},
                 'order_id': {'$last': '$order_id'},
@@ -650,13 +663,86 @@ def get_ready_for_barcode():
         result = []
         for item in items:
             result.append({
-                'sku_name': item['_id'],
+                'sku_name': item['_id']['sku_name'],
+                'color': item['_id'].get('color') or '',
                 'quantity': item['total_received'],
                 'mrp': item.get('mrp') or 0,
                 'order_id': item.get('order_id') or '',
                 'last_received': item['last_received'].isoformat() if item.get('last_received') else None
             })
         return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/mrp', methods=['GET'])
+def get_mrp_for_sku():
+    """Get MRP for a SKU+color combination from the most recent cloth order item."""
+    try:
+        sku_name = request.args.get('sku_name', '').strip()
+        color = request.args.get('color', '').strip()
+
+        if not sku_name:
+            return jsonify({'error': 'sku_name is required'}), 400
+
+        # Find the most recent cloth order item with this SKU and color
+        query = {'items.sku_name': sku_name}
+        if color:
+            query['items.color'] = color
+
+        order = cloth_orders_collection.find_one(
+            query,
+            {'items': 1, 'order_id': 1},
+            sort=[('created_at', -1)]
+        )
+
+        if not order:
+            return jsonify({'mrp': 0, 'found': False}), 200
+
+        # Find the matching item in the order
+        matching_item = None
+        for item in order.get('items', []):
+            if item['sku_name'] == sku_name:
+                if not color or item.get('color') == color:
+                    matching_item = item
+                    break
+
+        if matching_item:
+            return jsonify({
+                'mrp': matching_item.get('mrp', 0),
+                'found': True,
+                'order_id': order.get('order_id'),
+                'item_id': matching_item.get('item_id')
+            }), 200
+        else:
+            return jsonify({'mrp': 0, 'found': False}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/sku-colors', methods=['GET'])
+def get_sku_colors():
+    """Get available colors for a SKU from cloth orders."""
+    try:
+        sku_name = request.args.get('sku_name', '').strip()
+        if not sku_name:
+            return jsonify({'error': 'sku_name is required'}), 400
+
+        # Find all cloth orders with this SKU and get distinct colors
+        orders = cloth_orders_collection.find(
+            {'items.sku_name': sku_name},
+            {'items': 1}
+        )
+
+        colors = set()
+        for order in orders:
+            for item in order.get('items', []):
+                if item['sku_name'] == sku_name:
+                    color = item.get('color', '').strip()
+                    if color:
+                        colors.add(color)
+
+        return jsonify({'colors': sorted(list(colors))}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -737,8 +823,8 @@ def get_worker_history(worker_name):
     """
     Single $facet query returns everything about a worker:
     - All ledger activity (newest first)
-    - Current holdings (received - sent > 0)
-    - Completed SKUs  (received - sent == 0)
+    - Current holdings (received - sent > 0) grouped by (sku, color)
+    - Completed SKUs  (received - sent == 0) grouped by (sku, color)
     """
     try:
         has_ledger = work_ledger_collection.count_documents({}, limit=1) > 0
@@ -757,28 +843,30 @@ def get_worker_history(worker_name):
                 ],
                 'received': [
                     {'$match': {'to_entity': worker_name}},
-                    {'$group': {'_id': '$sku_name', 'n': {'$sum': '$quantity'},
+                    {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'n': {'$sum': '$quantity'},
                                 'last_date': {'$max': '$created_at'}}}
                 ],
                 'sent': [
                     {'$match': {'from_entity': worker_name}},
-                    {'$group': {'_id': '$sku_name', 'n': {'$sum': '$quantity'}}}
+                    {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'n': {'$sum': '$quantity'}}}
                 ]
             }}
         ]))[0]
 
-        rcv_map  = {r['_id']: {'n': r['n'], 'last_date': r.get('last_date')} for r in facet['received']}
-        snt_map  = {s['_id']: s['n'] for s in facet['sent']}
-        all_skus = set(rcv_map) | set(snt_map)
+        # Build maps with (sku, color) tuple keys
+        rcv_map  = {(r['_id']['sku'], r['_id'].get('color') or ''): {'n': r['n'], 'last_date': r.get('last_date')} for r in facet['received']}
+        snt_map  = {(s['_id']['sku'], s['_id'].get('color') or ''): s['n'] for s in facet['sent']}
+        all_keys = set(rcv_map) | set(snt_map)
 
         current_holdings, completed_skus = [], []
-        for sku in all_skus:
-            r = rcv_map.get(sku, {}).get('n', 0)
-            s = snt_map.get(sku, 0)
-            d = rcv_map.get(sku, {}).get('last_date')
+        for (sku, color) in all_keys:
+            r = rcv_map.get((sku, color), {}).get('n', 0)
+            s = snt_map.get((sku, color), 0)
+            d = rcv_map.get((sku, color), {}).get('last_date')
             holding = r - s
             entry = {
                 'sku_name': sku,
+                'color': color or '',
                 'total_received': r,
                 'total_sent': s,
                 'last_date': d.isoformat() if d else None
@@ -789,7 +877,7 @@ def get_worker_history(worker_name):
             else:
                 completed_skus.append(entry)
 
-        current_holdings.sort(key=lambda x: x['sku_name'])
+        current_holdings.sort(key=lambda x: (x['sku_name'], x['color']))
         completed_skus.sort(key=lambda x: x['last_date'] or '', reverse=True)
 
         activity = []
@@ -797,6 +885,9 @@ def get_worker_history(worker_name):
             e['_id'] = str(e['_id'])
             if e.get('created_at'):
                 e['created_at'] = e['created_at'].isoformat()
+            # Ensure color field exists for frontend
+            if 'color' not in e:
+                e['color'] = ''
             activity.append(e)
 
         return jsonify({

@@ -334,6 +334,7 @@ ${stickers}
             <span><strong>Batch:</strong> {batchId}</span>
             <span><strong>Company:</strong> {batch_info.company_name}</span>
             {batch_info.size && <span><strong>Size:</strong> {batch_info.size}</span>}
+            {batch_info.color && <span><strong>Color:</strong> {batch_info.color}</span>}
             <span><strong>MRP:</strong> ₹{batch_info.mrp?.toFixed(2)}</span>
             <span><strong>Quantity:</strong> {batch_info.quantity}</span>
           </div>
@@ -514,6 +515,7 @@ ${stickers}
                 <th>#</th>
                 <th>Barcode ID</th>
                 <th>SKU</th>
+                <th>Size/Color</th>
                 <th>MRP</th>
                 <th>Stock Status</th>
               </tr>
@@ -524,6 +526,11 @@ ${stickers}
                   <td>{index + 1}</td>
                   <td><code>{bc.barcode_id}</code></td>
                   <td>{bc.sku_name}</td>
+                  <td>
+                    {bc.size && <span style={{fontSize: 11, color: '#4338ca'}}>{bc.size}</span>}
+                    {bc.size && bc.color && <span style={{fontSize: 11}}> / </span>}
+                    {bc.color && <span style={{fontSize: 11, color: '#be185d'}}>{bc.color}</span>}
+                  </td>
                   <td>₹{bc.mrp?.toFixed(2)}</td>
                   <td>
                     {bc.current_stock > 0 ? (

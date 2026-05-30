@@ -13,17 +13,17 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
   const [localWorkers, setLocalWorkers] = useState(workers)
 
   const [transferForm, setTransferForm] = useState({
-    from_worker: '', to_worker: '', sku_name: '', quantity: '', work_type: 'Diamond Work', notes: '', date: ''
+    from_worker: '', to_worker: '', sku_name: '', color: '', quantity: '', work_type: 'Diamond Work', notes: '', date: ''
   })
 
   const [returnForm, setReturnForm] = useState({
-    from_entity: '', sku_name: '', quantity: '', supplier_name: '', notes: ''
+    from_entity: '', sku_name: '', color: '', quantity: '', supplier_name: '', notes: ''
   })
 
   const close = () => { setModal(null); setError(null) }
 
   const openReturn = () => {
-    setReturnForm({ from_entity: '', sku_name: '', quantity: '', supplier_name: '', notes: '' })
+    setReturnForm({ from_entity: '', sku_name: '', color: '', quantity: '', supplier_name: '', notes: '' })
     setModal('return')
   }
 
@@ -42,7 +42,7 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
   }
 
   const openTransfer = () => {
-    setTransferForm({ from_worker: '', to_worker: '', sku_name: '', quantity: '', work_type: 'Diamond Work', notes: '', date: '' })
+    setTransferForm({ from_worker: '', to_worker: '', sku_name: '', color: '', quantity: '', work_type: 'Diamond Work', notes: '', date: '' })
     setLocalWorkers(workers)
     setModal('transfer')
   }
@@ -102,7 +102,7 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
               </div>
               {items.map((item, idx) => (
                 <div key={idx} className={styles.skuRow}>
-                  <span>{item.sku_name}</span>
+                  <span>{item.sku_name}{item.color ? <span style={{fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6}}>({item.color})</span> : ''}</span>
                   <span className="badge badge-warning">{item.quantity}</span>
                 </div>
               ))}
@@ -136,7 +136,10 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
               <tbody>
                 {additionalLedger.map((e, i) => (
                   <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
-                    <td><strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong></td>
+                    <td>
+                      <strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong>
+                      {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
+                    </td>
                     <td style={{ color: 'var(--text-secondary)', fontSize: 12, opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.from_entity}</td>
                     <td><MdArrowForward size={14} /></td>
                     <td style={{ fontWeight: 600, fontSize: 12, opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.to_entity}</td>
@@ -177,16 +180,32 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
                 setReturnForm(p => ({
                   ...p,
                   sku_name: sku,
+                  color: '',
                   supplier_name: skuSupplierMap[sku] || p.supplier_name
                 }))
               }}>
               <option value="">Select SKU...</option>
               {(returnForm.from_entity
-                ? workerStock.filter(ws => ws.worker_name === returnForm.from_entity)
-                : workerStock
-              ).map((ws, i) => <option key={i} value={ws.sku_name}>{ws.sku_name}</option>)}
+                ? [...new Set(workerStock.filter(ws => ws.worker_name === returnForm.from_entity).map(ws => ws.sku_name))]
+                : [...new Set(workerStock.map(ws => ws.sku_name))]
+              ).map((sku, i) => <option key={i} value={sku}>{sku}</option>)}
             </select>
           </FormRow>
+          {returnForm.from_entity && returnForm.sku_name && (
+            <FormRow label="Color" required>
+              <select className="form-input" value={returnForm.color}
+                onChange={e => setReturnForm(p => ({ ...p, color: e.target.value }))}>
+                <option value="">Select Color...</option>
+                <option value="">No Color / Plain</option>
+                {[...new Set(workerStock
+                  .filter(ws => ws.worker_name === returnForm.from_entity && ws.sku_name === returnForm.sku_name)
+                  .map(ws => ws.color || ''))]
+                  .filter(c => c)
+                  .map((color, i) => <option key={i} value={color}>{color}</option>)
+                }
+              </select>
+            </FormRow>
+          )}
           <FormRow label="Quantity" required>
             <input className="form-input" type="number" min="1" value={returnForm.quantity}
               onChange={e => setReturnForm(p => ({ ...p, quantity: e.target.value }))} />
@@ -222,7 +241,7 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
           </FormRow>
           {transferForm.from_worker && workerStock.filter(ws => ws.worker_name === transferForm.from_worker).length > 0 && (
             <div className={styles.holdingInfo}>
-              <strong>Holding:</strong> {workerStock.filter(ws => ws.worker_name === transferForm.from_worker).map(ws => `${ws.sku_name}: ${ws.quantity}`).join(', ')}
+              <strong>Holding:</strong> {workerStock.filter(ws => ws.worker_name === transferForm.from_worker).map(ws => `${ws.sku_name}${ws.color ? ` (${ws.color})` : ''}: ${ws.quantity}`).join(', ')}
             </div>
           )}
           <div className="form-group">
@@ -237,14 +256,29 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
           </div>
           <FormRow label="SKU Name" required>
             <select className="form-input" value={transferForm.sku_name}
-              onChange={e => setTransferForm(p => ({ ...p, sku_name: e.target.value }))}>
+              onChange={e => setTransferForm(p => ({ ...p, sku_name: e.target.value, color: '' }))}>
               <option value="">Select SKU...</option>
               {transferForm.from_worker
-                ? workerStock.filter(ws => ws.worker_name === transferForm.from_worker).map((ws, i) => <option key={i} value={ws.sku_name}>{ws.sku_name}</option>)
-                : workerStock.map((ws, i) => <option key={i} value={ws.sku_name}>{ws.sku_name}</option>)
+                ? [...new Set(workerStock.filter(ws => ws.worker_name === transferForm.from_worker).map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
+                : [...new Set(workerStock.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
               }
             </select>
           </FormRow>
+          {transferForm.from_worker && transferForm.sku_name && (
+            <FormRow label="Color" required>
+              <select className="form-input" value={transferForm.color}
+                onChange={e => setTransferForm(p => ({ ...p, color: e.target.value }))}>
+                <option value="">Select Color...</option>
+                <option value="">No Color / Plain</option>
+                {[...new Set(workerStock
+                  .filter(ws => ws.worker_name === transferForm.from_worker && ws.sku_name === transferForm.sku_name)
+                  .map(ws => ws.color || ''))]
+                  .filter(c => c)
+                  .map((color, i) => <option key={i} value={color}>{color}</option>)
+                }
+              </select>
+            </FormRow>
+          )}
           <FormRow label="Quantity" required>
             <input className="form-input" type="number" min="1" value={transferForm.quantity}
               onChange={e => setTransferForm(p => ({ ...p, quantity: e.target.value }))} />
