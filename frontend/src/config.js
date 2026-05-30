@@ -8,6 +8,7 @@ export const API_HEADERS = {
   'ngrok-skip-browser-warning': '1'
 }
 
+
 // Helper function for API fetch with proper headers
 export const apiFetch = (endpoint, options = {}) => {
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`
