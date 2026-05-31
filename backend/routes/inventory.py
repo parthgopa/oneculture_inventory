@@ -32,13 +32,14 @@ def get_inventory():
             },
             # Unwind the barcode info array (should be 1:1)
             {'$unwind': {'path': '$barcode_info', 'preserveNullAndEmptyArrays': True}},
-            # Group by barcode_id with color
+            # Group by barcode_id with color and size
             {
                 '$group': {
                     '_id': '$barcode_id',
                     'company_name': {'$first': '$company_name'},
                     'sku_name': {'$first': '$sku_name'},
                     'color': {'$first': {'$ifNull': ['$barcode_info.color', '']}},
+                    'size': {'$first': {'$ifNull': ['$barcode_info.size', '']}},
                     'total_in': {
                         '$sum': {'$cond': [{'$eq': ['$action_type', 'IN']}, 1, 0]}
                     },
@@ -64,6 +65,7 @@ def get_inventory():
                         'color': '$color',
                         'company_name': '$company_name'
                     },
+                    'size': {'$first': '$size'},
                     'barcodes': {'$push': '$_id'},
                     'barcode_count': {'$sum': 1},
                     'total_stock': {'$sum': '$current_stock'},
@@ -81,6 +83,7 @@ def get_inventory():
                     'sku_name': '$_id.sku_name',
                     'color': '$_id.color',
                     'company_name': '$_id.company_name',
+                    'size': 1,
                     'barcodes': 1,
                     'barcode_count': 1,
                     'total_stock': 1,
@@ -120,7 +123,7 @@ def get_inventory():
             doc['barcode_id']: doc
             for doc in barcodes_collection.find(
                 {'barcode_id': {'$in': all_barcodes}},
-                {'barcode_id': 1, 'mrp': 1, 'batch_id': 1, 'color': 1}
+                {'barcode_id': 1, 'mrp': 1, 'batch_id': 1, 'color': 1, 'size': 1}
             )
         }
 
@@ -130,9 +133,11 @@ def get_inventory():
                 if barcode_doc:
                     product['mrp'] = barcode_doc.get('mrp', 0)
                     product['batch_id'] = barcode_doc.get('batch_id', '')
-                    # Use color from barcode if not already set
+                    # Use color/size from barcode if not already set
                     if not product.get('color') and barcode_doc.get('color'):
                         product['color'] = barcode_doc.get('color')
+                    if not product.get('size') and barcode_doc.get('size'):
+                        product['size'] = barcode_doc.get('size')
                 else:
                     product['mrp'] = 0
                     product['batch_id'] = ''

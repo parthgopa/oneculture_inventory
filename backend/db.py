@@ -65,5 +65,62 @@ def ensure_indexes():
 
     print("[DB] Indexes ensured")
 
+
+def migrate_stock_fields():
+    """
+    ONE-TIME MIGRATION: Initialize current_stock and last_action fields on barcodes.
+    This calculates stock from scan_events and stores it directly on the barcode document
+    for O(1) lookups instead of O(n) aggregation.
+    Safe to run multiple times - only updates documents missing the fields.
+    """
+    # Find barcodes without current_stock field
+    barcodes_to_migrate = list(barcodes_collection.find(
+        {'current_stock': {'$exists': False}},
+        {'barcode_id': 1}
+    ))
+    
+    if not barcodes_to_migrate:
+        print("[DB] No barcodes need stock migration")
+        return
+    
+    print(f"[DB] Migrating {len(barcodes_to_migrate)} barcodes...")
+    
+    for barcode in barcodes_to_migrate:
+        barcode_id = barcode['barcode_id']
+        
+        # Calculate stock from scan events
+        pipeline = [
+            {'$match': {'barcode_id': barcode_id}},
+            {'$sort': {'timestamp': -1}},
+            {'$group': {
+                '_id': '$barcode_id',
+                'last_action': {'$first': '$action_type'},
+                'in_count': {'$sum': {'$cond': [{'$eq': ['$action_type', 'IN']}, 1, 0]}},
+                'out_count': {'$sum': {'$cond': [{'$eq': ['$action_type', 'OUT']}, 1, 0]}}
+            }}
+        ]
+        
+        result = list(scan_events_collection.aggregate(pipeline))
+        
+        if result:
+            current_stock = result[0]['in_count'] - result[0]['out_count']
+            last_action = result[0]['last_action']
+        else:
+            current_stock = 0
+            last_action = None
+        
+        # Update barcode document
+        barcodes_collection.update_one(
+            {'barcode_id': barcode_id},
+            {'$set': {
+                'current_stock': current_stock,
+                'last_action': last_action
+            }}
+        )
+    
+    print(f"[DB] Migrated {len(barcodes_to_migrate)} barcodes with stock data")
+
+
 # Run on import
 ensure_indexes()
+migrate_stock_fields()

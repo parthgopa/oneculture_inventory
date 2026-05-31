@@ -16,6 +16,7 @@ function Dashboard() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showScanner, setShowScanner] = useState(false)
+  const [scanMode, setScanMode] = useState(null) // null = auto-toggle, 'IN' = forced IN, 'OUT' = forced OUT
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
 
   const [refreshing, setRefreshing] = useState(false)
@@ -82,19 +83,65 @@ function Dashboard() {
           flexWrap: 'wrap',
           justifyContent: isMobile ? 'stretch' : 'flex-end'
         }}>
+          {/* Stock IN Button - Green */}
           <button
-            className="btn btn-primary"
-            onClick={() => setShowScanner(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: isMobile ? '1 1 auto' : 'none' }}
+            onClick={() => { setScanMode('IN'); setShowScanner(true); }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flex: isMobile ? '1 1 45%' : 'none',
+              padding: '12px 20px',
+              fontSize: '15px',
+              fontWeight: 600,
+              border: 'none',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: '#fff',
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+              transition: 'transform 0.15s, box-shadow 0.15s',
+            }}
+            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
+            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
           >
-            <MdQrCodeScanner size={20} />
-            Scan Barcode
+            <MdQrCodeScanner size={22} />
+            Stock IN
           </button>
+          
+          {/* Stock OUT Button - Red */}
+          <button
+            onClick={() => { setScanMode('OUT'); setShowScanner(true); }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flex: isMobile ? '1 1 45%' : 'none',
+              padding: '12px 20px',
+              fontSize: '15px',
+              fontWeight: 600,
+              border: 'none',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              color: '#fff',
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+              transition: 'transform 0.15s, box-shadow 0.15s',
+            }}
+            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
+            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+          >
+            <MdQrCodeScanner size={22} />
+            Stock OUT
+          </button>
+          
           <button
             className="btn btn-outline"
             onClick={handleRefresh}
             disabled={refreshing}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: isMobile ? '1 1 auto' : 'none' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: isMobile ? '1 1 100%' : 'none' }}
           >
             <MdRefresh size={20} className={refreshing ? 'spin' : ''} />
             {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -322,11 +369,12 @@ function Dashboard() {
       {/* Mobile Barcode Scanner Overlay */}
       {showScanner && (
         <MobileBarcodeScanner 
-          onClose={() => setShowScanner(false)} 
+          onClose={() => { setShowScanner(false); setScanMode(null); }}
           onScanSuccess={() => {
             // Refresh stats after successful scan
             setTimeout(() => fetchDashboardStats(), 500)
           }}
+          mode={scanMode}
         />
       )}
     </div>

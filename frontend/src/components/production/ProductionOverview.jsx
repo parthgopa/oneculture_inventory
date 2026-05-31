@@ -1,10 +1,8 @@
-import { useNavigate } from 'react-router-dom'
 import { MdAssignment, MdBuild, MdQrCode2, MdPeople, MdArrowForward } from 'react-icons/md'
 import { Badge, STAGE_LABELS, STAGE_COLORS } from './helpers'
 import styles from './ProductionOverview.module.css'
 
-function ProductionOverview({ stats, workerStock, ledger, readyItems }) {
-  const navigate = useNavigate()
+function ProductionOverview({ stats, workerStock, ledger, readyItems, setActiveTab }) {
 
   const grouped = {}
   workerStock.forEach(ws => {
@@ -77,7 +75,7 @@ function ProductionOverview({ stats, workerStock, ledger, readyItems }) {
                     <td style={{ fontSize: 12 }}>{item.last_received ? new Date(item.last_received).toLocaleDateString() : '—'}</td>
                     <td>
                       <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
-                        onClick={() => navigate(`/generator?sku_name=${encodeURIComponent(item.sku_name)}&quantity=${item.quantity}&mrp=${item.mrp || 0}`)}>
+                        onClick={() => setActiveTab('generatebarcode')}>
                         <MdQrCode2 size={15} /> Generate Barcodes
                       </button>
                     </td>

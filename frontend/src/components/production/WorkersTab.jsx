@@ -26,10 +26,6 @@ function WorkerDetailModal({ worker, onClose }) {
           {/* Summary stats */}
           <div className={styles.detailStats}>
             <div className={styles.detailStat}>
-              <div className={styles.detailStatVal}>{data.total_pieces_ever}</div>
-              <div className={styles.detailStatLabel}>Total Pieces Ever</div>
-            </div>
-            <div className={styles.detailStat}>
               <div className={styles.detailStatVal} style={{ color: '#f59e0b' }}>{data.total_pieces_current}</div>
               <div className={styles.detailStatLabel}>Currently Holding</div>
             </div>
@@ -175,8 +171,9 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
     onRefresh()
   }
 
-  const jobWorkers        = workers.filter(w => !['Additional Work', 'Diamond Work', 'Jari Work'].includes(w.work_type))
-  const additionalWorkers = workers.filter(w => ['Additional Work', 'Diamond Work', 'Jari Work'].includes(w.work_type))
+  // Seroski = Embroidery jobwork only, Additional Work = everything else
+  const seroskiWorkers    = workers.filter(w => w.work_type === 'Embroidery')
+  const additionalWorkers = workers.filter(w => w.work_type !== 'Embroidery')
 
   const renderCard = (w) => {
     const holding = workerStock.filter(ws => ws.worker_name === w.name)
@@ -187,7 +184,11 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
           <div className={styles.avatar}>{w.name[0].toUpperCase()}</div>
           <div style={{ flex: 1 }}>
             <div className={styles.workerName}>{w.name}</div>
-            {w.phone && <div className={styles.workerPhone}>{w.phone}</div>}
+          </div>
+          <div className={styles.holdingBadge}>
+            {total > 0
+              ? <span className="badge badge-warning">{total} pcs</span>
+              : <span className={styles.noHolding}>0 pcs</span>}
           </div>
           <button onClick={() => setSelectedWorker(w)} className={styles.viewBtn} title="View Details">
             <MdVisibility size={17} />
@@ -201,22 +202,9 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
         </div>
         <div className={styles.cardBody}>
           <Badge text={w.work_type} color="#6366f1" />
-          <div className={styles.holdingBadge}>
-            {total > 0
-              ? <span className="badge badge-warning">{total} pieces</span>
-              : <span className={styles.noHolding}>No current holding</span>}
-          </div>
+       
         </div>
-        {total > 0 && (
-          <div className={styles.skuList}>
-            {holding.map((h, i) => (
-              <div key={i} className={styles.skuRow}>
-                <span>{h.sku_name}{h.color && <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({h.color})</span>}</span>
-                <span>{h.quantity} pcs</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/*  */}
       </div>
     )
   }
@@ -242,16 +230,16 @@ function WorkersTab({ workers, workerStock, onRefresh }) {
         </div>
       ) : (
         <div className={styles.splitPane}>
-          {/* Left — Job Work */}
+          {/* Left — Seroski (Embroidery) */}
           <div className={styles.paneCol}>
             <div className={styles.paneHeader}>
-              <MdBuild size={15} /> Job Work
-              <span className={styles.paneCount}>{jobWorkers.length}</span>
+              <MdBuild size={15} /> Seroski
+              <span className={styles.paneCount}>{seroskiWorkers.length}</span>
             </div>
             <div className={styles.paneScroll}>
-              {jobWorkers.length > 0
-                ? jobWorkers.map(renderCard)
-                : <p className={styles.emptyPane}>No job-work workers</p>}
+              {seroskiWorkers.length > 0
+                ? seroskiWorkers.map(renderCard)
+                : <p className={styles.emptyPane}>No Seroski workers</p>}
             </div>
           </div>
           {/* Right — Additional Work */}

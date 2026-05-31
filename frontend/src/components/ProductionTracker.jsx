@@ -94,7 +94,7 @@ function SkuTracker({ sku, ledger, batches }) {
   // Quick-glance pipeline chips for the collapsed header
   const chips = [
     { label: `${totalOrdered} ordered`,          done: true },
-    { label: `${totalReceived} received`,         done: totalReceived > 0 },
+    { label: `${totalReceived} with supplier`,    done: totalReceived > 0 },
     { label: `${totalJobWork} in job work`,       done: totalJobWork > 0 },
     ...(totalReturned > 0 ? [{ label: `${totalReturned} returned`, done: true }] : []),
     { label: `${totalFinalReceived} final rcvd`,  done: totalFinalReceived > 0 },
@@ -167,12 +167,13 @@ function SkuTracker({ sku, ledger, batches }) {
 
           <StageConnector done={totalReceived > 0} />
 
-          {/* 2. Cloth Received */}
-          <StageBlock stage="received" label="Cloth Received" color="#0ea5e9" done={totalReceived > 0}>
+          {/* 2. With Supplier */}
+          <StageBlock stage="received" label="With Supplier" color="#0ea5e9" done={totalReceived > 0}>
             {clothReceived.map((e, i) => (
               <div key={i} className={styles.entryRow}>
                 <span className={styles.qty}>{e.quantity} pcs</span>
                 <span className={styles.date}>{new Date(e.created_at).toLocaleDateString()}</span>
+                <span className={styles.supplier}>{e.to_entity}</span>
                 {totalReceived < totalOrdered && (
                   <span className={styles.shortfall}>{totalOrdered - totalReceived} short</span>
                 )}

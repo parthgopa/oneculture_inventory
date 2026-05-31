@@ -53,13 +53,27 @@ def create_barcode_batch():
     if not all([company_name, sku_name, mrp]):
         return jsonify({'error': 'Missing required fields'}), 400
 
+    # Find the last barcode for this SKU to continue numbering
+    last_barcode = barcodes_collection.find_one(
+        {'sku_name': sku_name},
+        sort=[('barcode_id', -1)]
+    )
+    
     # Use pure numeric format for better scanner compatibility
     timestamp = datetime.now().strftime('%y%m%d%H%M%S')
     batch_id = f"B{timestamp}"
     created_barcodes = []
+    
+    # Determine starting number
+    if last_barcode and last_barcode.get('barcode_id'):
+        # Extract the last 4 digits from the previous barcode
+        last_number = int(last_barcode['barcode_id'][-4:])
+        start_number = last_number + 1
+    else:
+        start_number = 1
 
     for i in range(quantity):
-        barcode_id = f"{timestamp}{str(i+1).zfill(4)}"
+        barcode_id = f"{timestamp}{str(start_number + i).zfill(4)}"
 
         barcode_doc = {
             'barcode_id': barcode_id,

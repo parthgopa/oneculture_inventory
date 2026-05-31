@@ -151,7 +151,8 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
             <select className="form-input" value={receiveForm.worker_name}
               onChange={e => setReceiveForm(p => ({ ...p, worker_name: e.target.value, sku_name: '', color: '' }))}>
               <option value="">Select Worker...</option>
-              {workers.map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {workers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
+                .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
             </select>
           </FormRow>
           {receiveForm.worker_name && workerStock.filter(ws => ws.worker_name === receiveForm.worker_name).length > 0 && (
@@ -161,7 +162,17 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
           )}
           <FormRow label="SKU Name" required>
             <select className="form-input" value={receiveForm.sku_name}
-              onChange={e => setReceiveForm(p => ({ ...p, sku_name: e.target.value, color: '' }))}>
+              onChange={e => {
+                const sku = e.target.value;
+                // Auto-select color if there's only one color for this SKU
+                const colorsForSku = [...new Set(workerStock
+                  .filter(ws => ws.worker_name === receiveForm.worker_name && ws.sku_name === sku)
+                  .map(ws => ws.color || '')
+                  .filter(c => c)
+                )];
+                const autoColor = colorsForSku.length === 1 ? colorsForSku[0] : '';
+                setReceiveForm(p => ({ ...p, sku_name: sku, color: autoColor }));
+              }}>
               <option value="">Select SKU...</option>
               {skuOptions.length > 0
                 ? [...new Set(skuOptions.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)

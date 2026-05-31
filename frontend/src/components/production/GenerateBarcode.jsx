@@ -147,15 +147,12 @@ function GenerateBarcode({ readyItems = [] }) {
           text: `✓ Successfully generated ${formData.quantity} barcode(s)!`,
         })
         setGeneratedBatch(data)
-        setFormData({
-          company_name: 'ONėCULTURE',
-          sku_name: '',
-          size: '',
-          color: '',
-          mrp: '',
+        // Keep SKU name, size, color, MRP but reset quantity to 1 for next batch
+        setFormData(prev => ({
+          ...prev,
           quantity: 1,
-        })
-        setProductImage(null)
+        }))
+        // Don't clear product image or fetch history yet
         fetchBatchHistory()
       } else {
         setMessage({
@@ -231,7 +228,14 @@ function GenerateBarcode({ readyItems = [] }) {
 
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-header">
-          <h2 className="card-title">Generate New Batch</h2>
+          <h2 className="card-title">
+            Generate New Batch
+            {formData.sku_name && (
+              <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8 }}>
+                - SKU: {formData.sku_name}
+              </span>
+            )}
+          </h2>
         </div>
 
           {message && (

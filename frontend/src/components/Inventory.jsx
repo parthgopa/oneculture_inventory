@@ -272,11 +272,9 @@ function Inventory() {
                   <th style={{ width: 80 }}>Image</th>
                   <th>Product (SKU)</th>
                   <th>MRP</th>
-                  {/* <th>Barcodes</th> */}
-                  <th>Stock In</th>
-                  <th>Stock Out</th>
+                  <th>Color</th>
+                  <th>Size</th>
                   <th>Current Stock</th>
-                  {/* <th>Status</th> */}
                   <th style={{ width: 100 }}>Actions</th>
                 </tr>
               </thead>
@@ -305,16 +303,10 @@ function Inventory() {
                       </td>
                       <td>
                         <strong>{item.sku_name}</strong>
-                        {item.color && (
-                          <div style={{ fontSize: 11, color: '#6366f1', marginTop: 2 }}>
-                            Color: {item.color}
-                          </div>
-                        )}
                       </td>
                       <td>₹{(item.mrp || 0).toFixed(2)}</td>
-                      {/* <td><span className="badge badge-primary">{item.barcode_count}</span></td> */}
-                      <td><span className={styles.stockIn}>+{item.total_in}</span></td>
-                      <td><span className={styles.stockOut}>-{item.total_out}</span></td>
+                      <td>{item.color || '—'}</td>
+                      <td>{item.size || '—'}</td>
                       <td><span className={styles.stockCell}>{item.total_stock}</span></td>
                       {/* <td>
                         <div className="stock-level">

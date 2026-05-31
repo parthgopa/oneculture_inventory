@@ -69,6 +69,18 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
     if (e.sku_name && e.from_entity) skuSupplierMap[e.sku_name] = e.from_entity
   })
 
+  // Get available SKUs from company stock
+  const availableSkus = ledger
+    .filter(e => e.stage === 'cloth_received' && e.to_entity === 'company')
+    .reduce((acc, e) => {
+      const key = e.sku_name + (e.color ? `|${e.color}` : '')
+      if (!acc[key]) {
+        acc[key] = { sku_name: e.sku_name, color: e.color || '', quantity: 0 }
+      }
+      acc[key].quantity += e.quantity
+      return acc
+    }, {})
+
   const grouped = {}
   workerStock.forEach(ws => {
     if (!grouped[ws.worker_name]) grouped[ws.worker_name] = []
@@ -220,8 +232,15 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
             Send pieces from company stock to a worker for job work.
           </p>
           <FormRow label="SKU Name" required>
-            <input className="form-input" placeholder="e.g. Design A" value={assignForm.sku_name}
-              onChange={e => setAssignForm(p => ({ ...p, sku_name: e.target.value }))} />
+            <select className="form-input" value={assignForm.sku_name}
+              onChange={e => setAssignForm(p => ({ ...p, sku_name: e.target.value }))}>
+              <option value="">Select SKU...</option>
+              {Object.values(availableSkus).map((sku, i) => (
+                <option key={i} value={sku.sku_name}>
+                  {sku.sku_name}{sku.color ? ` (${sku.color})` : ''} - {sku.quantity} available
+                </option>
+              ))}
+            </select>
           </FormRow>
           <div className="form-group">
             <label className="form-label">Worker <span style={{ color: 'var(--danger-color)' }}>*</span></label>

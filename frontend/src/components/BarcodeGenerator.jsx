@@ -87,14 +87,12 @@ function BarcodeGenerator() {
           text: `✓ Successfully generated ${formData.quantity} barcode(s)!`,
         })
         setGeneratedBatch(data)
-        setFormData({
-          company_name: 'ONėCULTURE',
-          sku_name: '',
-          size: '',
-          mrp: '',
+        // Keep SKU name, size, MRP but reset quantity to 1 for next batch
+        setFormData(prev => ({
+          ...prev,
           quantity: 1,
-        })
-        setProductImage(null)
+        }))
+        // Don't clear product image
         fetchBatchHistory()
         
         // Navigate to batch details page

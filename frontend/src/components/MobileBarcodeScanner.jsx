@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { apiFetch } from '../config'
 import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/library'
 import {
@@ -10,46 +10,92 @@ import {
   MdError,
   MdLogout,
   MdCameraAlt,
-  MdKeyboard
+  MdKeyboard,
+  MdWarning
 } from 'react-icons/md'
 import styles from './MobileBarcodeScanner.module.css'
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PERFORMANCE: Reduced delays for faster scan-to-result cycle
+// ══════════════════════════════════════════════════════════════════════════════
+const RESUME_DELAY_SUCCESS = 800   // ms after successful scan
+const RESUME_DELAY_ERROR = 1000    // ms after error
+const RESUME_DELAY_DUPLICATE = 1200 // ms after duplicate warning
 
 /**
  * Mobile Barcode Scanner - Camera-based scanning for mobile devices
  * Uses canvas-based frame capture + ZXing decoding (reliable across all browsers)
  * Native BarcodeDetector API as secondary fallback
- * Same backend API as USB scanner: POST /api/scan {barcode_id}
+ * Same backend API as USB scanner: POST /api/scan {barcode_id, action_type?}
+ * 
+ * PERFORMANCE OPTIMIZED:
+ * - Canvas context cached in ref (not re-acquired every frame)
+ * - Scan loop state in refs (no re-renders during scanning)
+ * - requestAnimationFrame for frame-perfect scanning
+ * - Memoized callbacks and styles
  */
-function MobileBarcodeScanner({ onClose, onScanSuccess }) {
+function MobileBarcodeScanner({ onClose, onScanSuccess, mode = null }) {
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATE: Only for things that need to trigger re-renders
+  // ══════════════════════════════════════════════════════════════════════════
   const [hasCamera, setHasCamera] = useState(false)
-  const [scanning, setScanning] = useState(false)
   const [flashOn, setFlashOn] = useState(false)
   const [message, setMessage] = useState(null)
-  const [lastScan, setLastScan] = useState(null)
   const [cameraLoading, setCameraLoading] = useState(true)
-  const [detecting, setDetecting] = useState(false)
   const [showManual, setShowManual] = useState(false)
   const [manualValue, setManualValue] = useState('')
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // REFS: For scan loop - no re-renders needed
+  // ══════════════════════════════════════════════════════════════════════════
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
-  const scanFrameRef = useRef(null) // ref to the scan frame overlay element
+  const canvasCtxRef = useRef(null) // PERF: Cache canvas context
+  const scanFrameRef = useRef(null)
   const streamRef = useRef(null)
   const zxingReaderRef = useRef(null)
   const barcodeDetectorRef = useRef(null)
-  const scanTimerRef = useRef(null)
+  const rafIdRef = useRef(null)
   const processingRef = useRef(false)
   const lastScanRef = useRef(null)
+  const lastScanTimeRef = useRef(0) // PERF: Debounce rapid scans
   const mountedRef = useRef(true)
   const videoReadyRef = useRef(false)
   const scanStartedRef = useRef(false)
+  const scanningRef = useRef(false) // PERF: Use ref instead of state for scan loop
+  const detectingRef = useRef(false) // PERF: Use ref instead of state
+  const sendToBackendRef = useRef(null) // PERF: Ref to avoid circular dependency
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // MEMOIZED STYLES: Avoid creating new objects on every render
+  // ══════════════════════════════════════════════════════════════════════════
+  const headerStyle = useMemo(() => ({
+    background: mode === 'IN' 
+      ? 'linear-gradient(180deg, rgba(16, 185, 129, 0.95) 0%, rgba(16, 185, 129, 0.7) 50%, transparent 100%)'
+      : mode === 'OUT'
+        ? 'linear-gradient(180deg, rgba(239, 68, 68, 0.95) 0%, rgba(239, 68, 68, 0.7) 50%, transparent 100%)'
+        : undefined
+  }), [mode])
+
+  const scanFrameStyle = useMemo(() => ({
+    '--scan-color': mode === 'IN' ? '#10b981' : mode === 'OUT' ? '#ef4444' : '#e8490d'
+  }), [mode])
+
+  const scanLineStyle = useMemo(() => ({
+    background: mode === 'IN' 
+      ? 'linear-gradient(90deg, transparent 0%, #10b981 40%, #10b981 60%, transparent 100%)'
+      : mode === 'OUT'
+        ? 'linear-gradient(90deg, transparent 0%, #ef4444 40%, #ef4444 60%, transparent 100%)'
+        : undefined
+  }), [mode])
+
+  const cornerStyle = useMemo(() => ({
+    borderColor: mode === 'IN' ? '#10b981' : mode === 'OUT' ? '#ef4444' : undefined
+  }), [mode])
+
+  const videoOpacityStyle = useMemo(() => ({ opacity: hasCamera ? 1 : 0 }), [hasCamera])
 
   // ── Helpers ──────────────────────────────────────────────
-
-  const updateLastScan = useCallback((value) => {
-    lastScanRef.current = value
-    setLastScan(value)
-  }, [])
 
   // Short beep sound via Web Audio API (no audio file needed)
   const playBeep = useCallback(() => {
@@ -60,7 +106,7 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       oscillator.connect(gain)
       gain.connect(ctx.destination)
       oscillator.type = 'sine'
-      oscillator.frequency.setValueAtTime(1800, ctx.currentTime)        // high pitched
+      oscillator.frequency.setValueAtTime(1800, ctx.currentTime)
       oscillator.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.08)
       gain.gain.setValueAtTime(0.4, ctx.currentTime)
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
@@ -95,9 +141,8 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       const reader = new BrowserMultiFormatReader(hints)
       reader.timeBetweenDecodingAttempts = 0
       zxingReaderRef.current = reader
-      console.log('✅ ZXing reader ready')
     } catch (err) {
-      console.warn('ZXing init failed:', err)
+      /* ZXing init failed */
     }
 
     if ('BarcodeDetector' in window) {
@@ -108,9 +153,8 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
             'upc_a', 'upc_e', 'data_matrix', 'pdf417', 'itf'
           ]
         })
-        console.log('✅ Native BarcodeDetector available')
       } catch (e) {
-        console.warn('BarcodeDetector init failed:', e)
+        /* BarcodeDetector not supported */
       }
     }
 
@@ -129,46 +173,78 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
 
   const initCamera = async () => {
     try {
-      console.log('📷 Requesting camera access...')
 
       let mediaStream = null
 
-      // Try back camera first with exact constraint
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { exact: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+      // ══════════════════════════════════════════════════════════════════════════
+      // RESOLUTION NEGOTIATION FIX:
+      // Use ONLY 'ideal' constraints (never 'min') so the browser gives the
+      // highest resolution it can instead of rejecting the entire constraint set.
+      // DO NOT include resizeMode: 'none' — many mobile browsers don't support it
+      // and will silently reject the whole constraint set when bundled.
+      // ══════════════════════════════════════════════════════════════════════════
+      const attempts = [
+        {
+          label: 'back camera 4K',
+          constraints: {
+            video: {
+              facingMode: { exact: 'environment' },
+              width: { ideal: 3840 },
+              height: { ideal: 2160 },
+              frameRate: { ideal: 30 },
+            },
+            audio: false,
           },
-          audio: false
-        })
-        console.log('📹 Got back camera (exact)')
-      } catch (backErr) {
-        console.warn('Back camera (exact) failed:', backErr.message)
-
-        // Try with ideal (not exact) — works better on some devices
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({
+        },
+        {
+          label: 'back camera 1080p',
+          constraints: {
+            video: {
+              facingMode: { exact: 'environment' },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 30 },
+            },
+            audio: false,
+          },
+        },
+        {
+          label: 'back camera (ideal facing)',
+          constraints: {
             video: {
               facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
             },
-            audio: false
-          })
-          console.log('📹 Got camera (ideal environment)')
-        } catch (idealErr) {
-          console.warn('Ideal environment failed:', idealErr.message)
+            audio: false,
+          },
+        },
+        {
+          label: 'any camera HD',
+          constraints: {
+            video: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false,
+          },
+        },
+        {
+          label: 'any camera',
+          constraints: { video: true, audio: false },
+        },
+      ]
 
-          // Last resort — any camera
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false
-          })
-          console.log('📹 Got fallback camera (any)')
+      for (const attempt of attempts) {
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia(attempt.constraints)
+          break
+        } catch (err) {
+          /* Try next constraint set */
         }
       }
+
+      if (!mediaStream) throw new Error('All camera attempts failed')
 
       if (!mountedRef.current) {
         mediaStream.getTracks().forEach(t => t.stop())
@@ -181,15 +257,44 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       const track = mediaStream.getVideoTracks()[0]
       if (track) {
         const settings = track.getSettings()
-        console.log('📹 Camera active:', settings.width, 'x', settings.height,
-          '| facing:', settings.facingMode || 'unknown')
+        const capabilities = track.getCapabilities?.() || {}
+        
+
+        // ══════════════════════════════════════════════════════════════════════════
+        // AUTOFOCUS FIX: Apply continuous autofocus, exposure, and white balance
+        // This is CRITICAL — without continuous autofocus the camera may lock
+        // focus on the background and barcodes will be blurry.
+        // ══════════════════════════════════════════════════════════════════════════
+        const advancedConstraints = []
+        
+        if (capabilities.focusMode?.includes('continuous')) {
+          advancedConstraints.push({ focusMode: 'continuous' })
+        }
+        if (capabilities.exposureMode?.includes('continuous')) {
+          advancedConstraints.push({ exposureMode: 'continuous' })
+        }
+        if (capabilities.whiteBalanceMode?.includes('continuous')) {
+          advancedConstraints.push({ whiteBalanceMode: 'continuous' })
+        }
+        
+        if (advancedConstraints.length > 0) {
+          try {
+            await track.applyConstraints({ advanced: advancedConstraints })
+          } catch (e) {
+            /* Advanced constraints not supported */
+          }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════
+        // NO DIGITAL ZOOM: Digital zoom crops the sensor and upscales, destroying
+        // pixel data and making barcodes blurrier. We want every real sensor pixel.
+        // Optical zoom is not controllable via WebRTC.
+        // ══════════════════════════════════════════════════════════════════════════
       }
 
-      // Attach stream and explicitly play
       await attachAndPlay(mediaStream)
 
     } catch (err) {
-      console.error('❌ Camera init failed:', err)
       if (!mountedRef.current) return
       setHasCamera(false)
       setCameraLoading(false)
@@ -205,22 +310,17 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
   const attachAndPlay = async (mediaStream) => {
     const video = videoRef.current
     if (!video) {
-      console.error('❌ Video element ref is null')
       setCameraLoading(false)
       return
     }
-
-    console.log('🔗 Attaching stream to video element...')
     video.srcObject = mediaStream
 
     // MUST explicitly call play() — autoplay alone is unreliable on mobile
     const tryPlay = async (attempt) => {
       try {
         await video.play()
-        console.log(`▶️ video.play() succeeded (attempt ${attempt})`)
         return true
       } catch (err) {
-        console.warn(`▶️ video.play() failed (attempt ${attempt}):`, err.message)
         return false
       }
     }
@@ -247,7 +347,6 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       // (onPlaying can be unreliable on mobile re-open)
       beginScanning()
     } else {
-      console.error('❌ All play attempts failed')
       setCameraLoading(false)
       setMessage({
         type: 'error',
@@ -257,9 +356,10 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
   }
 
   const stopEverything = () => {
-    if (scanTimerRef.current) {
-      clearInterval(scanTimerRef.current)
-      scanTimerRef.current = null
+    // Cancel requestAnimationFrame loop
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current)
+      rafIdRef.current = null
     }
 
     if (streamRef.current) {
@@ -282,41 +382,52 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
     if (scanStartedRef.current) return
     scanStartedRef.current = true
     videoReadyRef.current = true
+    scanningRef.current = true
 
-    console.log('🔍 Scan loop started')
     setCameraLoading(false)
-    setScanning(true)
     setMessage(null)
-    setDetecting(false)
 
-    if (scanTimerRef.current) clearInterval(scanTimerRef.current)
+    // Cancel any existing rAF loop
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current)
+    }
 
-    scanTimerRef.current = setInterval(() => {
+    // PERF: Cache canvas context once
+    if (canvasRef.current && !canvasCtxRef.current) {
+      canvasCtxRef.current = canvasRef.current.getContext('2d', { willReadFrequently: true })
+    }
+
+    // requestAnimationFrame loop - captures every unique frame exactly once
+    const scanLoop = () => {
+      if (!mountedRef.current || !videoReadyRef.current) return
+      
       scanFrame()
-    }, 150) // faster interval for snappier detection
+      rafIdRef.current = requestAnimationFrame(scanLoop)
+    }
+    
+    rafIdRef.current = requestAnimationFrame(scanLoop)
   }, [])
 
   const handleVideoPlaying = useCallback(() => {
-    console.log('▶️ onPlaying event fired')
     beginScanning() // backup: also called directly from attachAndPlay
   }, [beginScanning])
 
   // ── Core scan: crop canvas to scan frame region → decode ───
 
-  const scanFrame = () => {
+  const scanFrame = useCallback(() => {
     if (processingRef.current) return
     if (!videoReadyRef.current) return
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas) return
+    const ctx = canvasCtxRef.current
+    if (!video || !canvas || !ctx) return
     if (video.readyState < 2) return
     if (video.videoWidth === 0 || video.videoHeight === 0) return
 
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    // PERF: Disable image smoothing (nearest-neighbor preserves barcode edges)
+    ctx.imageSmoothingEnabled = false
 
-    // — Crop canvas to scan frame region only —
-    // This ensures only barcodes inside the purple frame are decoded
     const frameBounds = scanFrameRef.current?.getBoundingClientRect()
     const videoBounds = video.getBoundingClientRect()
 
@@ -326,32 +437,37 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       const displayW = videoBounds.width
       const displayH = videoBounds.height
 
-      // object-fit: cover scale factor (video fills container, may be cropped)
       const scale = Math.max(displayW / videoW, displayH / videoH)
       const scaledW = videoW * scale
       const scaledH = videoH * scale
-
-      // Centering offset (cover crops symmetrically)
       const offsetX = (scaledW - displayW) / 2
       const offsetY = (scaledH - displayH) / 2
-
-      // Frame position relative to the video element's rendered rect
       const relX = frameBounds.left - videoBounds.left
       const relY = frameBounds.top - videoBounds.top
 
-      // Map from screen pixels → actual video pixel coordinates
-      const cropX = Math.max(0, (relX + offsetX) / scale)
-      const cropY = Math.max(0, (relY + offsetY) / scale)
-      const cropW = Math.min(videoW - cropX, frameBounds.width / scale)
-      const cropH = Math.min(videoH - cropY, frameBounds.height / scale)
+      let cropX = Math.max(0, (relX + offsetX) / scale)
+      let cropY = Math.max(0, (relY + offsetY) / scale)
+      let cropW = Math.min(videoW - cropX, frameBounds.width / scale)
+      let cropH = Math.min(videoH - cropY, frameBounds.height / scale)
 
-      canvas.width = Math.round(cropW)
-      canvas.height = Math.round(cropH)
-      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height)
+      // Add 20% margin for quiet zones
+      const marginX = cropW * 0.20
+      const marginY = cropH * 0.20
+      cropX = Math.max(0, cropX - marginX)
+      cropY = Math.max(0, cropY - marginY)
+      cropW = Math.min(videoW - cropX, cropW + marginX * 2)
+      cropH = Math.min(videoH - cropY, cropH + marginY * 2)
+
+      const finalW = Math.round(cropW)
+      const finalH = Math.round(cropH)
+      canvas.width = finalW
+      canvas.height = finalH
+      ctx.imageSmoothingEnabled = false
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, finalW, finalH)
     } else {
-      // Fallback: use full frame
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
+      ctx.imageSmoothingEnabled = false
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     }
 
@@ -362,11 +478,7 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       try {
         const result = zxingReaderRef.current.decodeFromCanvas(canvas)
         if (result) {
-          decoded = {
-            value: result.getText(),
-            format: result.getBarcodeFormat()?.toString() || 'unknown',
-            source: 'zxing'
-          }
+          decoded = { value: result.getText() }
         }
       } catch (err) {
         // NotFoundException — normal when no barcode in frame
@@ -380,12 +492,14 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
           if (processingRef.current) return
           if (barcodes.length > 0 && barcodes[0].rawValue) {
             const raw = barcodes[0].rawValue.trim()
-            if (raw && raw !== lastScanRef.current) {
-              console.log(`📱 Barcode [native]: "${raw}" (${barcodes[0].format})`)
+            // PERF: Debounce - don't scan same barcode within 500ms
+            const now = Date.now()
+            if (raw && raw !== lastScanRef.current && (now - lastScanTimeRef.current > 500)) {
               processingRef.current = true
-              setDetecting(true)
-              updateLastScan(raw)
-              sendToBackend(raw)
+              detectingRef.current = true
+              lastScanRef.current = raw
+              lastScanTimeRef.current = now
+              sendToBackendRef.current?.(raw)
             }
           }
         })
@@ -396,125 +510,166 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
     // Handle ZXing result
     if (decoded && decoded.value) {
       const raw = decoded.value.trim()
-      if (raw === lastScanRef.current) return
+      // PERF: Debounce - don't scan same barcode within 500ms
+      const now = Date.now()
+      if (raw === lastScanRef.current && (now - lastScanTimeRef.current < 500)) return
 
-      console.log(`📱 Barcode [${decoded.source}]: "${raw}" (${decoded.format})`)
       processingRef.current = true
-      setDetecting(true)
-      updateLastScan(raw)
-      sendToBackend(raw)
-    } else {
-      setDetecting(false)
+      detectingRef.current = true
+      lastScanRef.current = raw
+      lastScanTimeRef.current = now
+      sendToBackendRef.current?.(raw)
     }
-  }
+  }, [])
 
   // ── Backend API call (SAME as USB scanner) ─────────────
 
-  const sendToBackend = async (barcodeValue) => {
-    if (scanTimerRef.current) {
-      clearInterval(scanTimerRef.current)
-      scanTimerRef.current = null
+  const sendToBackend = useCallback(async (barcodeValue) => {
+    // Stop the rAF scan loop while processing
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current)
+      rafIdRef.current = null
     }
     scanStartedRef.current = false
-    setScanning(false)
+    scanningRef.current = false
 
     try {
       const payload = { barcode_id: barcodeValue.trim() }
-      const res = await apiFetch('/api/scan', {
+      
+      // Use dedicated routes for better performance
+      const endpoint = mode === 'IN' ? '/api/scan/in' : mode === 'OUT' ? '/api/scan/out' : '/api/scan'
+      
+      console.time('backend')
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify(payload)
       })
-
       const data = await res.json()
+      console.timeEnd('backend')
 
       if (!mountedRef.current) return
 
+      // Handle different response codes
       if (res.status === 404) {
-        setMessage({ type: 'not_found', text: 'Barcode not in database — not registered in the system' })
-        resumeScanAfterDelay(2000)
+        // Barcode not found in database
+        setMessage({ 
+          type: 'not_found', 
+          text: `બારકોડ ડેટાબેઝમાં નથી — ${barcodeValue}` // Barcode not in database
+        })
+        resumeScanAfterDelay(RESUME_DELAY_ERROR)
+      } else if (res.status === 409) {
+        // Duplicate scan - already in same state
+        if (data.error === 'already_in') {
+          setMessage({ 
+            type: 'duplicate', 
+            text: `આ બારકોડ પહેલેથી સ્ટોક ઇન થયેલ છે — ${data.sku_name}` // This barcode is already stocked in
+          })
+        } else if (data.error === 'already_out') {
+          setMessage({ 
+            type: 'duplicate', 
+            text: `આ બારકોડ પહેલેથી સ્ટોક આઉટ થયેલ છે — ${data.sku_name}` // This barcode is already stocked out
+          })
+        }
+        playBeep() // Still beep to acknowledge scan
+        resumeScanAfterDelay(RESUME_DELAY_DUPLICATE)
+      } else if (res.status === 400 && data.error === 'no_stock') {
+        // No stock available for OUT
+        setMessage({ 
+          type: 'error', 
+          text: `સ્ટોક ઉપલબ્ધ નથી — ${data.sku_name}` // Stock not available
+        })
+        resumeScanAfterDelay(RESUME_DELAY_ERROR)
       } else if (res.ok) {
+        // Success!
         const isIn = data.action_type === 'IN'
         setMessage({
           type: isIn ? 'in' : 'out',
-          text: `${isIn ? 'Stock In' : 'Stock Out'} — ${data.sku_name} (stock: ${data.current_stock})`
+          text: isIn 
+            ? `સ્ટોક ઇન ✓ — ${data.sku_name} (સ્ટોક: ${data.current_stock})` // Stock In
+            : `સ્ટોક આઉટ ✓ — ${data.sku_name} (સ્ટોક: ${data.current_stock})` // Stock Out
         })
         if (onScanSuccess) onScanSuccess(data)
         playBeep()
         if (navigator.vibrate) navigator.vibrate([100, 50, 100])
-        resumeScanAfterDelay(1500)
+        resumeScanAfterDelay(RESUME_DELAY_SUCCESS)
       } else {
-        setMessage({ type: 'error', text: data.error || 'Scan failed' })
-        resumeScanAfterDelay()
+        // Other error
+        setMessage({ 
+          type: 'error', 
+          text: data.error || 'સ્કેન નિષ્ફળ' // Scan failed
+        })
+        resumeScanAfterDelay(RESUME_DELAY_ERROR)
       }
     } catch (err) {
       if (!mountedRef.current) return
-      setMessage({ type: 'error', text: `Network error — ${err.message}` })
-      resumeScanAfterDelay()
+      setMessage({ 
+        type: 'error', 
+        text: `નેટવર્ક ભૂલ — ${err.message}` // Network error
+      })
+      resumeScanAfterDelay(RESUME_DELAY_ERROR)
     }
-  }
+  }, [mode, onScanSuccess, playBeep])
 
-  const resumeScanAfterDelay = (ms = 1500) => {
+  // Keep ref updated for scanFrame to use
+  useEffect(() => {
+    sendToBackendRef.current = sendToBackend
+  }, [sendToBackend])
+
+  const resumeScanAfterDelay = useCallback((ms) => {
     setTimeout(() => {
       if (!mountedRef.current) return
       processingRef.current = false
-      updateLastScan(null)
+      detectingRef.current = false
+      lastScanRef.current = null
       setMessage(null)
-      setDetecting(false)
-      setScanning(true)
+      scanningRef.current = true
 
       if (videoReadyRef.current) {
-        scanStartedRef.current = false // Allow beginScanning to run again
+        scanStartedRef.current = false
         beginScanning()
       }
     }, ms)
-  }
+  }, [beginScanning])
 
   // ── Flash toggle ───────────────────────────────────────
 
-  const toggleFlash = async () => {
+  const toggleFlash = useCallback(async () => {
     if (!streamRef.current) return
     const track = streamRef.current.getVideoTracks()[0]
     if (!track) return
 
     try {
-      const caps = track.getCapabilities?.() || {}
-      if (caps.torch) {
-        const next = !flashOn
-        await track.applyConstraints({ advanced: [{ torch: next }] })
-        setFlashOn(next)
-      } else {
-        setMessage({ type: 'error', text: 'Flash not available on this device' })
+      const next = !flashOn
+      await track.applyConstraints({ advanced: [{ torch: next }] })
+      setFlashOn(next)
+    } catch (err) {
+      if (flashOn === false) {
+        setMessage({ type: 'error', text: 'ફ્લેશ ઉપલબ્ધ નથી' }) // Flash not available
         setTimeout(() => mountedRef.current && setMessage(null), 2000)
       }
-    } catch (err) {
-      console.warn('Flash toggle error:', err)
     }
-  }
+  }, [flashOn])
 
   // ── Manual entry ───────────────────────────────────────
 
-  const handleManualSubmit = (e) => {
+  const handleManualSubmit = useCallback((e) => {
     e.preventDefault()
     const val = manualValue.trim()
     if (!val) return
     processingRef.current = true
-    updateLastScan(val)
+    lastScanRef.current = val
     sendToBackend(val)
     setManualValue('')
-  }
+  }, [manualValue, sendToBackend])
 
   // ── Tap-to-retry ───────────────────────────────────────
 
   const handleViewfinderTap = useCallback(() => {
     const video = videoRef.current
     if (video && video.paused && streamRef.current) {
-      console.log('👆 Tap-to-play retry...')
       video.play()
-        .then(() => {
-          console.log('▶️ Tap-to-play succeeded')
-          setMessage(null)
-        })
-        .catch(err => console.warn('Tap-to-play failed:', err))
+        .then(() => setMessage(null))
+        .catch(() => { /* Tap-to-play failed */ })
     }
   }, [])
 
@@ -525,10 +680,10 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
       <div className={styles.container}>
 
         {/* Header */}
-        <div className={styles.header}>
+        <div className={styles.header} style={headerStyle}>
           <h2 className={styles.title}>
             <MdQrCodeScanner size={24} />
-            Scan Barcode
+            {mode === 'IN' ? 'સ્ટોક ઇન' : mode === 'OUT' ? 'સ્ટોક આઉટ' : 'બારકોડ સ્કેન'}
           </h2>
           <div className={styles.headerActions}>
             <button
@@ -553,16 +708,24 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
             </div>
           )}
 
-          {/* video is ALWAYS rendered so videoRef.current is never null when attachAndPlay runs */}
+          {/* ══════════════════════════════════════════════════════════════════════
+              VIDEO ELEMENT ATTRIBUTES FIX:
+              - autoPlay, playsInline, muted are required for mobile autoplay
+              - webkit-playsinline="true" for iOS Safari
+              - NO CSS transform: scale(), max-width, max-height that would downscale
+              - object-fit: cover is fine (handled in CSS)
+              ══════════════════════════════════════════════════════════════════════ */}
           <video
             ref={videoRef}
             className={styles.video}
-            style={{ opacity: hasCamera ? 1 : 0 }}
+            style={videoOpacityStyle}
             autoPlay
             playsInline
             muted
             webkit-playsinline="true"
             x-webkit-airplay="allow"
+            disablePictureInPicture
+            disableRemotePlayback
             onPlaying={handleVideoPlaying}
           />
 
@@ -572,23 +735,23 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
             <>
               {!cameraLoading && (
                 <div className={styles.scanOverlay}>
-                  <div ref={scanFrameRef} className={styles.scanFrame}>
-                    <div className={styles.scanLine} />
-                    <span className={styles.cornerTL} />
-                    <span className={styles.cornerTR} />
-                    <span className={styles.cornerBL} />
-                    <span className={styles.cornerBR} />
+                  <div 
+                    ref={scanFrameRef} 
+                    className={styles.scanFrame}
+                    style={scanFrameStyle}
+                  >
+                    <div className={styles.scanLine} style={scanLineStyle} />
+                    <span className={styles.cornerTL} style={cornerStyle} />
+                    <span className={styles.cornerTR} style={cornerStyle} />
+                    <span className={styles.cornerBL} style={cornerStyle} />
+                    <span className={styles.cornerBR} style={cornerStyle} />
                   </div>
                   <p className={styles.scanText}>
-                    {detecting
-                      ? '🔍 Reading barcode…'
-                      : scanning
-                        ? 'Align barcode in frame'
-                        : processingRef.current
-                          ? '⏳ Sending to server…'
-                          : 'Align barcode in frame'}
+                    {mode === 'IN' ? 'સ્ટોક ઉમેરવા સ્કેન કરો' : mode === 'OUT' ? 'સ્ટોક કાઢવા સ્કેન કરો' : 'બારકોડ ફ્રેમમાં રાખો'}
                   </p>
-                  <p className={styles.scanHint}>Hold steady · Good lighting helps</p>
+                  <p className={styles.scanHint}>
+                    {mode === 'IN' ? 'દરેક સ્કેન +1 સ્ટોક ઉમેરે છે' : mode === 'OUT' ? 'દરેક સ્કેન -1 સ્ટોક કાઢે છે' : 'સ્થિર રાખો · નાના બારકોડ માટે નજીક જાઓ'}
+                  </p>
                 </div>
               )}
 
@@ -601,11 +764,12 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
                 </button>
               )}
 
-              {/* Status message — inside viewfinder so absolute positioning works correctly */}
+              {/* Status message — inside viewfinder */}
               {message && (
                 <div className={`${styles.message} ${styles[message.type]}`}>
                   {message.type === 'in'        && <MdCheckCircle size={20} />}
                   {message.type === 'out'       && <MdLogout size={20} />}
+                  {message.type === 'duplicate' && <MdWarning size={20} />}
                   {message.type === 'not_found' && <MdError size={20} />}
                   {message.type === 'error'     && <MdError size={20} />}
                   <span>{message.text}</span>
@@ -615,12 +779,12 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
           ) : !cameraLoading ? (
             <div className={styles.noCamera}>
               <MdCameraAlt size={48} />
-              <p>Camera not available</p>
+              <p>કેમેરા ઉપલબ્ધ નથી</p>
               <button
                 className={styles.manualFallbackBtn}
                 onClick={() => setShowManual(true)}
               >
-                Enter barcode manually
+                બારકોડ મેન્યુઅલી દાખલ કરો
               </button>
             </div>
           ) : null}
@@ -629,7 +793,7 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
         {/* Manual input */}
         {showManual && (
           <div className={styles.manualSection}>
-            <p className={styles.manualLabel}>Or type / paste barcode:</p>
+            <p className={styles.manualLabel}>અથવા બારકોડ ટાઇપ / પેસ્ટ કરો:</p>
             <form className={styles.manualForm} onSubmit={handleManualSubmit}>
               <input
                 className={styles.manualInput}
@@ -637,7 +801,7 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
                 inputMode="text"
                 autoComplete="off"
                 autoFocus
-                placeholder="e.g. 8901234567890"
+                placeholder="દા.ત. 8901234567890"
                 value={manualValue}
                 onChange={(e) => setManualValue(e.target.value)}
               />
@@ -646,22 +810,15 @@ function MobileBarcodeScanner({ onClose, onScanSuccess }) {
                 type="submit"
                 disabled={!manualValue.trim()}
               >
-                Scan
+                સ્કેન
               </button>
             </form>
           </div>
         )}
 
-        {/* Last scan */}
-        {lastScan && !message && (
-          <div className={styles.lastScan}>
-            Last detected: <strong>{lastScan}</strong>
-          </div>
-        )}
-
         {/* Footer */}
         <div className={styles.footer}>
-          <p>Same as USB scanner · Toggles IN / OUT automatically</p>
+          <p>{mode === 'IN' ? 'સ્ટોક ઇન મોડ' : mode === 'OUT' ? 'સ્ટોક આઉટ મોડ' : 'ઓટો ટૉગલ મોડ'}</p>
         </div>
       </div>
     </div>

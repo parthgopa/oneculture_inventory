@@ -170,7 +170,8 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
             <select className="form-input" value={returnForm.from_entity}
               onChange={e => setReturnForm(p => ({ ...p, from_entity: e.target.value }))}>
               <option value="">Select worker...</option>
-              {workers.map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {workers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
+                .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
             </select>
           </FormRow>
           <FormRow label="SKU Name" required>
@@ -236,7 +237,8 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
             <select className="form-input" value={transferForm.from_worker}
               onChange={e => setTransferForm(p => ({ ...p, from_worker: e.target.value }))}>
               <option value="">Select Worker...</option>
-              {localWorkers.map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {localWorkers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
+                .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
             </select>
           </FormRow>
           {transferForm.from_worker && workerStock.filter(ws => ws.worker_name === transferForm.from_worker).length > 0 && (
@@ -249,7 +251,9 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
             <select className="form-input" value={transferForm.to_worker}
               onChange={e => setTransferForm(p => ({ ...p, to_worker: e.target.value }))}>
               <option value="">Select Worker...</option>
-              {localWorkers.map(w => w.name !== transferForm.from_worker && <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {localWorkers.filter(w => w.name !== transferForm.from_worker).map(w => 
+                <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type || 'Job Work'})</option>
+              )}
             </select>
             <QuickAddWorker defaultWorkType="Additional Work"
               onWorkerAdded={(w) => { mergeWorker(w); setTransferForm(p => ({ ...p, to_worker: w.name })) }} />

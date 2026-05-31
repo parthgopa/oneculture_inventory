@@ -104,7 +104,7 @@ function Production() {
       </div>
 
       {activeTab === 'overview' && (
-        <ProductionOverview stats={stats} workerStock={workerStock} ledger={ledger} readyItems={readyItems} />
+        <ProductionOverview stats={stats} workerStock={workerStock} ledger={ledger} readyItems={readyItems} setActiveTab={setActiveTab} />
       )}
       {activeTab === 'orders' && (
         <ClothOrders orders={orders} workers={workers} workerStock={workerStock} onRefresh={onRefresh} />

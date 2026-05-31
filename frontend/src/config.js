@@ -2,6 +2,8 @@
 // export const API_BASE_URL = 'http://localhost:5000'
 export const API_BASE_URL = 'https://inventory.oneculture.in/api'
 
+// export const API_BASE_URL = 'https://6910-2409-4090-1032-7005-248d-d666-7b94-c8e9.ngrok-free.app'
+
 // Default headers for all API calls (includes ngrok bypass)
 export const API_HEADERS = {
   'Content-Type': 'application/json',

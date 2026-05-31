@@ -122,18 +122,13 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Badge text={STATUS_LABELS[order.status] || order.status} color={STATUS_COLORS[order.status]} />
-              {order.status === 'ordered' && (
-                <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => openReceive(order)}>
-                  <MdCheckCircle size={14} /> Mark Received
-                </button>
-              )}
             </div>
           </div>
 
           <div className="table-container">
             <table className="table">
               <thead>
-                <tr><th>SKU</th><th>Fabric</th><th>Color</th><th>Ordered</th><th>Received</th><th>MRP</th><th>Status</th><th>Action</th></tr>
+                <tr><th>SKU</th><th>Fabric</th><th>Color</th><th>Ordered</th><th>With Supplier</th><th>MRP</th><th>Status</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {order.items?.map(item => (
@@ -142,17 +137,15 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
                     <td>{item.fabric_type || '—'}</td>
                     <td>{item.color || '—'}</td>
                     <td><span className="badge badge-primary">{item.quantity_ordered}</span></td>
-                    <td><span className={`badge badge-${item.quantity_received > 0 ? 'success' : 'danger'}`}>{item.quantity_received}</span></td>
+                    <td><span className="badge badge-info">{item.quantity_ordered}</span></td>
                     <td>{item.mrp > 0 ? `₹${item.mrp.toFixed(2)}` : '—'}</td>
                     <td><Badge text={STATUS_LABELS[item.status] || item.status} color={STATUS_COLORS[item.status]} /></td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {/* BUG FIX: show for both 'received' and 'in_work' statuses */}
-                        {(item.status === 'received' || item.status === 'in_work') && (
-                          <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => openAssign(order, item)}>
-                            <MdBuild size={13} /> Assign Work
-                          </button>
-                        )}
+                        {/* Show assign button for all items */}
+                        <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => openAssign(order, item)}>
+                          <MdBuild size={13} /> Assign Work
+                        </button>
                         <button className={styles.trackBtn} onClick={() => navigate(`/tracker?sku=${encodeURIComponent(item.sku_name)}`)}>
                           <MdTimeline size={13} /> Track
                         </button>
@@ -254,28 +247,6 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
         </Modal>
       )}
 
-      {/* ── Receive Cloth Modal ────────────────────────────────────────────── */}
-      {modal === 'receive' && receiveTarget && (
-        <Modal title="Mark Cloth as Received" onClose={close}>
-          {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 0 }}>Enter the actual quantity received from the supplier.</p>
-          <FormRow label="Date Received">
-            <input className="form-input" type="date" value={receiveDate}
-              onChange={e => setReceiveDate(e.target.value)} />
-          </FormRow>
-          {receiveItems.map((item, idx) => (
-            <div key={item.item_id} style={{ marginBottom: 14 }}>
-              <label className="form-label">{item.sku_name}</label>
-              <input className="form-input" type="number" min="0" value={item.quantity_received}
-                onChange={e => { const copy = [...receiveItems]; copy[idx].quantity_received = parseInt(e.target.value) || 0; setReceiveItems(copy) }}
-                placeholder="Quantity received" />
-            </div>
-          ))}
-          <button className="btn btn-primary" style={{ width: '100%', marginTop: 8 }} onClick={handleReceive} disabled={submitting}>
-            {submitting ? 'Saving...' : 'Confirm Receipt'}
-          </button>
-        </Modal>
-      )}
 
       {/* ── Assign Work Modal ──────────────────────────────────────────────── */}
       {modal === 'assign' && (

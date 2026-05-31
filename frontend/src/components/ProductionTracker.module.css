@@ -239,6 +239,15 @@
   margin-bottom: 4px;
 }
 
+.supplier {
+  font-size: 11px;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
 /* Worker Entry */
 .workerEntry {
   display: flex;

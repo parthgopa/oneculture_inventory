@@ -41,7 +41,7 @@ def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None, color
             q['order_id'] = order_id
         if item_id:
             q['item_id'] = item_id
-        if color is not None:
+        if color is not None and color != '':
             q['color'] = color
         return q
 
@@ -196,6 +196,24 @@ def create_order():
             'created_at': datetime.now()
         }
         result = cloth_orders_collection.insert_one(order)
+        
+        # Create ledger entries to assign quantity to supplier
+        for item in items:
+            work_ledger_collection.insert_one({
+                'ledger_id': generate_id('L'),
+                'order_id': order_id,
+                'item_id': item['item_id'],
+                'sku_name': item['sku_name'],
+                'color': item['color'],
+                'from_entity': 'company',
+                'to_entity': order['supplier_name'],
+                'quantity': item['quantity_ordered'],
+                'stage': 'cloth_received',
+                'work_type': 'Cloth Order',
+                'notes': 'Order placed with supplier',
+                'created_at': order['created_at']
+            })
+        
         order['_id'] = str(result.inserted_id)
         order['created_at'] = order['created_at'].isoformat()
         return jsonify(order), 201
@@ -318,13 +336,34 @@ def assign_job_work():
         if not worker_name or quantity <= 0 or not sku_name:
             return jsonify({'error': 'Worker name, SKU, and quantity are required'}), 400
 
-        # Check company has enough available
-        available = get_entity_holding('company', sku_name=sku_name,
+        # Find which supplier has this SKU
+        supplier_with_sku = None
+        if order_id:
+            # Get the order to find the supplier
+            order = cloth_orders_collection.find_one({'order_id': order_id})
+            if order:
+                supplier_with_sku = order.get('supplier_name')
+        
+        if not supplier_with_sku:
+            # Find any supplier that has this SKU
+            supplier_ledger = work_ledger_collection.find_one({
+                'sku_name': sku_name,
+                'stage': 'cloth_received',
+                'to_entity': {'$ne': 'company'}
+            }, sort=[('created_at', -1)])
+            if supplier_ledger:
+                supplier_with_sku = supplier_ledger.get('to_entity')
+        
+        if not supplier_with_sku:
+            return jsonify({'error': f'No supplier found with SKU "{sku_name}"'}), 400
+        
+        # Check supplier has enough available
+        available = get_entity_holding(supplier_with_sku, sku_name=sku_name,
                                        order_id=order_id or None,
                                        item_id=item_id or None)
         if available < quantity:
             return jsonify({
-                'error': f'Company only has {available} pieces of "{sku_name}" available to assign'
+                'error': f'Supplier "{supplier_with_sku}" only has {available} pieces of "{sku_name}" available to assign'
             }), 400
 
         if order_id and item_id:
@@ -348,7 +387,7 @@ def assign_job_work():
             'item_id': item_id,
             'sku_name': sku_name,
             'color': color,
-            'from_entity': 'company',
+            'from_entity': supplier_with_sku,
             'to_entity': worker_name,
             'quantity': quantity,
             'stage': 'job_assigned',
@@ -465,10 +504,32 @@ def receive_final():
         })
 
         if order_id and item_id:
-            cloth_orders_collection.update_one(
-                {'order_id': order_id, 'items.item_id': item_id},
-                {'$set': {'items.$.status': 'completed'}}
-            )
+            # Check if this is the final receive for the full quantity
+            order = cloth_orders_collection.find_one({'order_id': order_id})
+            if order:
+                item = next((i for i in order.get('items', []) if i.get('item_id') == item_id), None)
+                if item:
+                    # Calculate total received for this item
+                    total_received = work_ledger_collection.aggregate([
+                        {'$match': {
+                            'order_id': order_id,
+                            'item_id': item_id,
+                            'stage': 'final_received',
+                            'to_entity': 'company'
+                        }},
+                        {'$group': {
+                            '_id': None,
+                            'total': {'$sum': '$quantity'}
+                        }}
+                    ])
+                    total_received = list(total_received)[0]['total'] if total_received else 0
+                    
+                    # Only mark as completed if full quantity received
+                    if total_received >= item.get('quantity_ordered', 0):
+                        cloth_orders_collection.update_one(
+                            {'order_id': order_id, 'items.item_id': item_id},
+                            {'$set': {'items.$.status': 'completed'}}
+                        )
 
         return jsonify({
             'message': f'Received {quantity} finished pieces of "{sku_name}" from {worker_name}',
@@ -560,54 +621,28 @@ def update_ledger_date(ledger_id):
 @production_bp.route('/api/production/ledger/<ledger_id>/revert', methods=['POST'])
 def revert_ledger_entry(ledger_id):
     """
-    Revert a ledger entry by inserting an equal-and-opposite counter-entry.
-    The original is preserved for audit. The counter-entry has stage='reverted'.
+    Revert a ledger entry by DELETING it from the ledger.
+    No counter-entry is created - the entry is simply removed.
+    Stock calculations will automatically reflect the removal.
     """
     try:
         original = work_ledger_collection.find_one({'ledger_id': ledger_id})
         if not original:
             return jsonify({'error': 'Ledger entry not found'}), 404
-        if original.get('stage') == 'revert_source':
-            return jsonify({'error': 'This entry has already been reverted'}), 400
 
-        # Check if already reverted (a counter-entry exists referencing this id)
-        already = work_ledger_collection.find_one({'reverts_ledger_id': ledger_id})
-        if already and already.get('stage') != 'revert_source':
-            return jsonify({'error': 'This entry has already been reverted'}), 400
-
-        data = request.json or {}
-        notes = (data.get('notes') or f"Reverted: {original.get('notes') or original.get('stage')}").strip()
-
-        # Validate the "from" entity (original to_entity) still holds enough
-        holding_entity = original['to_entity']
-        if holding_entity.lower() not in ('company',) and not holding_entity.lower().startswith('supplier'):
-            available = get_entity_holding(holding_entity, sku_name=original['sku_name'])
-            if available < original['quantity']:
-                return jsonify({
-                    'error': f'Cannot revert: "{holding_entity}" only has {available} pieces of '
-                             f'"{original["sku_name"]}" (need {original["quantity"]})'
-                }), 400
-
-        work_ledger_collection.insert_one({
-            'ledger_id': generate_id('L'),
-            'order_id': original.get('order_id', ''),
-            'item_id': original.get('item_id', ''),
-            'sku_name': original['sku_name'],
-            'from_entity': original['to_entity'],   # reverse direction
-            'to_entity': original['from_entity'],
-            'quantity': original['quantity'],
-            'stage': 'reverted',
-            'work_type': 'Revert',
-            'notes': notes,
-            'reverts_ledger_id': ledger_id,
-            'created_at': datetime.now()
-        })
-        # Mark the original so the frontend knows it has been reverted
-        work_ledger_collection.update_one(
-            {'ledger_id': ledger_id},
-            {'$set': {'stage': 'revert_source', 'reverted_by': ledger_id}}
-        )
-        return jsonify({'message': f'Reverted ledger entry {ledger_id}'}), 201
+        # Simply delete the entry - stock will be recalculated automatically
+        result = work_ledger_collection.delete_one({'ledger_id': ledger_id})
+        
+        if result.deleted_count > 0:
+            return jsonify({
+                'message': f'Entry {ledger_id} deleted',
+                'sku_name': original.get('sku_name'),
+                'quantity': original.get('quantity'),
+                'from_entity': original.get('from_entity'),
+                'to_entity': original.get('to_entity')
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to delete entry'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
