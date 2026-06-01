@@ -174,57 +174,100 @@ function GenerateBarcode({ readyItems = [] }) {
     navigate(`/batch/${batchId}`)
   }
 
+  // Get next barcode number for current SKU
+  const getNextBarcodeNumber = () => {
+    if (!formData.sku_name) return null
+    
+    // Find the last barcode for this SKU
+    const lastBarcode = batchHistory
+      .filter(b => b.sku_name === formData.sku_name && b.barcode_id)
+      .sort((a, b) => b.barcode_id.localeCompare(a.barcode_id))[0]
+    
+    if (lastBarcode && lastBarcode.barcode_id) {
+      // Extract the last 4 digits from the previous barcode
+      const lastNumber = parseInt(lastBarcode.barcode_id.slice(-4))
+      return lastNumber + 1
+    }
+    return 1
+  }
+
   return (
     <div>
-      {/* Quick-fill from ready items - filter out items already generated */}
-      {(() => {
-        // Filter out items that already have barcodes generated (match by sku_name + color)
-        const generatedKeys = new Set(batchHistory.map(b => `${b.sku_name}__${b.color || ''}`))
-        const filteredReadyItems = readyItems.filter(item => {
-          const key = `${item.sku_name}__${item.color || ''}`
-          return !generatedKeys.has(key)
-        })
-
-        if (filteredReadyItems.length === 0) return null
-
-        return (
-          <div className="card" style={{ marginBottom: 20 }}>
-            <div className="card-header">
-              <h3 className="card-title">
-                <MdCheckCircle size={18} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--success-color)' }} />
-                Ready for Barcode
-              </h3>
-            </div>
-            <div style={{ padding: '0 16px 16px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {filteredReadyItems.map((item, i) => {
-                const skuImage = skuCatalogImages[item.sku_name]
-                return (
-                  <button
-                    key={i}
-                    className="btn btn-outline"
-                    style={{ fontSize: 12, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 6 }}
-                    onClick={() => handleReadyItemSelect(item)}
-                  >
-                    {skuImage ? (
-                      <img
-                        src={skuImage}
-                        alt={item.sku_name}
-                        style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <MdImage size={14} color="var(--text-secondary)" />
-                    )}
-                    <span>{item.sku_name}</span>
-                    {item.size ? ` · ${item.size}` : ''}
-                    {item.color ? ` · ${item.color}` : ''}
-                    {item.quantity ? ` · ${item.quantity} pcs` : ''}
-                  </button>
-                )
-              })}
-            </div>
+      {/* SKU Status Summary - Always show all SKUs with barcode status */}
+      {readyItems.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-header">
+            <h3 className="card-title">
+              <MdQrCode2 size={18} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--primary-color)' }} />
+              SKU Barcode Status
+            </h3>
           </div>
-        )
-      })()}
+          <div style={{ padding: '0 16px 16px' }}>
+            {readyItems.map((item, i) => {
+              const skuImage = skuCatalogImages[item.sku_name]
+              // Calculate barcodes generated for this SKU
+              const generatedForSku = batchHistory
+                .filter(b => b.sku_name === item.sku_name && (!item.color || b.color === item.color))
+                .reduce((sum, b) => sum + (b.total_barcodes || 0), 0)
+              const remaining = Math.max(0, item.quantity - generatedForSku)
+              const isCompleted = remaining === 0
+              
+              return (
+                <div key={i} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '12px',
+                  marginBottom: i < readyItems.length - 1 ? '8px' : '0',
+                  backgroundColor: isCompleted ? '#f0fdf4' : '#fefce8',
+                  border: `1px solid ${isCompleted ? '#86efac' : '#fde047'}`,
+                  borderRadius: 8
+                }}>
+                  {skuImage ? (
+                    <img
+                      src={skuImage}
+                      alt={item.sku_name}
+                      style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div style={{ 
+                      width: 40, height: 40, borderRadius: 6, 
+                      background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      <MdImage size={20} color="#9ca3af" />
+                    </div>
+                  )}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
+                      {item.sku_name}
+                      {item.size && <span style={{ fontWeight: 400, color: '#6b7280' }}> · {item.size}</span>}
+                      {item.color && <span style={{ fontWeight: 400, color: '#6b7280' }}> · {item.color}</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>
+                      Total: {item.quantity} | Generated: {generatedForSku} | Remaining: {remaining}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    {isCompleted ? (
+                      <span style={{ color: '#16a34a', fontSize: 12, fontWeight: 600 }}>
+                        ✓ Completed
+                      </span>
+                    ) : (
+                      <button
+                        className="btn btn-primary"
+                        style={{ fontSize: 11, padding: '4px 10px' }}
+                        onClick={() => handleReadyItemSelect(item)}
+                      >
+                        Generate {remaining} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-header">
@@ -233,6 +276,11 @@ function GenerateBarcode({ readyItems = [] }) {
             {formData.sku_name && (
               <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8 }}>
                 - SKU: {formData.sku_name}
+                {getNextBarcodeNumber() && (
+                  <span style={{ color: '#059669', marginLeft: 8 }}>
+                    Next #: {getNextBarcodeNumber().toString().padStart(4, '0')}
+                  </span>
+                )}
               </span>
             )}
           </h2>
