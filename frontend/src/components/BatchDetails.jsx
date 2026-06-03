@@ -158,7 +158,7 @@ function BatchDetails() {
 
   .sticker-row {
     display: flex;
-    align-items: baseline;
+    align-items: flex-start;
     gap: 3pt;
     line-height: 1.3;
   }
@@ -176,9 +176,9 @@ function BatchDetails() {
     font-size: 8pt;
     font-weight: 600;
     color: #111;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
   }
 
   .sticker-mrp {
