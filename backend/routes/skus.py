@@ -8,6 +8,16 @@ from db import sku_catalog_collection
 skus_bp = Blueprint('skus', __name__)
 
 
+def parse_mrp(value):
+    """Coerce an MRP value to a float, or None when blank/invalid."""
+    if value is None or value == '':
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def serialize(doc):
     doc['_id'] = str(doc['_id'])
     if isinstance(doc.get('created_at'), datetime):
@@ -37,7 +47,7 @@ def list_sku_names():
 
 @skus_bp.route('/api/skus', methods=['POST'])
 def create_sku():
-    """Create a new SKU entry. Body: { sku_name, description?, image? }"""
+    """Create a new SKU entry. Body: { sku_name, description?, color?, fabric?, mrp?, image? }"""
     data = request.json or {}
     sku_name = (data.get('sku_name') or '').strip()
     if not sku_name:
@@ -47,6 +57,9 @@ def create_sku():
     doc = {
         'sku_name': sku_name,
         'description': (data.get('description') or '').strip(),
+        'color': (data.get('color') or '').strip(),
+        'fabric': (data.get('fabric') or '').strip(),
+        'mrp': parse_mrp(data.get('mrp')),
         'image': data.get('image') or None,
         'created_at': datetime.now(),
         'updated_at': datetime.now(),
@@ -65,11 +78,17 @@ def get_sku(sku_name):
 
 @skus_bp.route('/api/skus/<sku_name>', methods=['PATCH'])
 def update_sku(sku_name):
-    """Update description and/or image."""
+    """Update description, color, fabric, mrp and/or image."""
     data = request.json or {}
     update = {'updated_at': datetime.now()}
     if 'description' in data:
         update['description'] = (data['description'] or '').strip()
+    if 'color' in data:
+        update['color'] = (data['color'] or '').strip()
+    if 'fabric' in data:
+        update['fabric'] = (data['fabric'] or '').strip()
+    if 'mrp' in data:
+        update['mrp'] = parse_mrp(data['mrp'])
     if 'image' in data:
         update['image'] = data['image'] or None
     result = sku_catalog_collection.update_one({'sku_name': sku_name}, {'$set': update})
