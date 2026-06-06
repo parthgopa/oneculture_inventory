@@ -129,7 +129,7 @@ export function EditableDateCell({ ledgerId, dateStr, onSaved }) {
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       >
         <MdCalendarToday size={11} />
-        {dateStr ? new Date(dateStr).toLocaleDateString() : '—'}
+        {dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : '—'}
         <MdEdit size={10} style={{ opacity: 0.45 }} />
       </span>
       {open && (
@@ -212,7 +212,7 @@ export function OrderDateCell({ orderId, dateStr, onSaved }) {
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       >
         <MdCalendarToday size={11} />
-        {dateStr ? new Date(dateStr).toLocaleDateString() : '—'}
+        {dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : '—'}
         <MdEdit size={10} style={{ opacity: 0.45 }} />
       </span>
       {open && (
@@ -257,13 +257,13 @@ export function RevertButton({ ledgerId, stage, onReverted }) {
   if (nonRevertable.includes(stage)) return null
 
   const handle = async () => {
-    const notes = window.prompt('Reason for revert (optional):') ?? null
-    if (notes === null) return  // user cancelled
+    const confirmed = window.confirm('Are you sure you want to revert this entry?')
+    if (!confirmed) return
     setLoading(true)
     try {
       const res = await apiFetch(`/api/production/ledger/${ledgerId}/revert`, {
         method: 'POST',
-        body: JSON.stringify({ notes })
+        body: JSON.stringify({ notes: '' })
       })
       const data = await res.json()
       if (!res.ok) { window.alert(data.error || 'Revert failed'); return }

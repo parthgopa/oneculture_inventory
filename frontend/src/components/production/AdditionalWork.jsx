@@ -1,19 +1,20 @@
 import { useState } from 'react'
 import { MdSwapHoriz, MdArrowForward, MdWarning, MdUndo } from 'react-icons/md'
 import { apiFetch } from '../../config'
-import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_ADDITIONAL,
+import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_WORKER,
          EditableDateCell, RevertButton } from './helpers'
 import QuickAddWorker from './QuickAddWorker'
 import styles from './AdditionalWork.module.css'
 
-function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
+function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
   const [modal, setModal] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [localWorkers, setLocalWorkers] = useState(workers)
 
+  const today = new Date().toISOString().slice(0, 10)
   const [transferForm, setTransferForm] = useState({
-    from_worker: '', to_worker: '', sku_name: '', color: '', quantity: '', work_type: 'Diamond Work', notes: '', date: ''
+    from_worker: '', to_worker: '', order_id: '', sku_name: '', color: '', quantity: '', work_type: '', notes: '', date: today
   })
 
   const [returnForm, setReturnForm] = useState({
@@ -42,10 +43,13 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
   }
 
   const openTransfer = () => {
-    setTransferForm({ from_worker: '', to_worker: '', sku_name: '', color: '', quantity: '', work_type: 'Diamond Work', notes: '', date: '' })
+    setTransferForm({ from_worker: '', to_worker: '', order_id: '', sku_name: '', color: '', quantity: '', work_type: '', notes: '', date: today })
     setLocalWorkers(workers)
     setModal('transfer')
   }
+
+  // Worker name → work_type map for autofill
+  const workerTypeMap = Object.fromEntries(workers.map(w => [w.name, w.work_type]))
 
   const mergeWorker = (w) => setLocalWorkers(prev => prev.find(p => p.worker_id === w.worker_id) ? prev : [...prev, w])
 
@@ -68,13 +72,23 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
     if (e.sku_name && e.from_entity) skuSupplierMap[e.sku_name] = e.from_entity
   })
 
+  // Filter to only "Additional Work" workers (non-Embroidery)
+  const additionalWorkerNames = new Set(workers.filter(w => w.work_type !== 'Embroidery').map(w => w.name))
+
+  // Build order→supplier map for display
+  const orderSupplierMap = {}
+  orders.forEach(o => { orderSupplierMap[o.order_id] = o.supplier_name || '—' })
+
   const grouped = {}
-  workerStock.forEach(ws => {
+  workerStock.filter(ws => additionalWorkerNames.has(ws.worker_name)).forEach(ws => {
     if (!grouped[ws.worker_name]) grouped[ws.worker_name] = []
     grouped[ws.worker_name].push(ws)
   })
 
-  const additionalLedger = ledger.filter(e => ['transferred', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage))
+  const additionalLedger = ledger.filter(e =>
+    ['transferred', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage) &&
+    (additionalWorkerNames.has(e.from_entity) || additionalWorkerNames.has(e.to_entity))
+  )
 
   return (
     <div>
@@ -131,11 +145,12 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
           <div className="table-container">
             <table className="table">
               <thead>
-                <tr><th>SKU</th><th>From</th><th></th><th>To</th><th>Qty</th><th>Stage</th><th>Date</th><th></th></tr>
+                <tr><th>#</th><th>SKU</th><th>From</th><th></th><th>To</th><th>Qty</th><th>Stage</th><th>Date</th><th></th></tr>
               </thead>
               <tbody>
                 {additionalLedger.map((e, i) => (
                   <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
+                    <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
                     <td>
                       <strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong>
                       {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
@@ -243,29 +258,104 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
           </FormRow>
           {transferForm.from_worker && workerStock.filter(ws => ws.worker_name === transferForm.from_worker).length > 0 && (
             <div className={styles.holdingInfo}>
-              <strong>Holding:</strong> {workerStock.filter(ws => ws.worker_name === transferForm.from_worker).map(ws => `${ws.sku_name}${ws.color ? ` (${ws.color})` : ''}: ${ws.quantity}`).join(', ')}
+              <strong>Current Holding:</strong>
+              {(() => {
+                let holdings = workerStock.filter(ws => ws.worker_name === transferForm.from_worker)
+                // If order selected, filter to that order
+                if (transferForm.order_id) {
+                  holdings = holdings.filter(ws => ws.order_id === transferForm.order_id)
+                }
+                // Group by order_id
+                const byOrder = {}
+                holdings.forEach(ws => {
+                  const oid = ws.order_id || 'Other'
+                  if (!byOrder[oid]) byOrder[oid] = []
+                  byOrder[oid].push(ws)
+                })
+                return Object.entries(byOrder).map(([orderId, items]) => (
+                  <div key={orderId} style={{ marginTop: 8, marginLeft: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      {orderId.startsWith('ORD') ? `Order: ${orderId}` : orderId}
+                      <span style={{ fontWeight: 'normal', color: '#6366f1', marginLeft: 4 }}>({orderSupplierMap[orderId] || '—'})</span>
+                    </div>
+                    <div style={{ marginLeft: 8, fontSize: 13 }}>
+                      {items.map((ws, i) => (
+                        <div key={i}>
+                          • {ws.sku_name}{ws.color ? <span style={{ color: 'var(--text-secondary)' }}> ({ws.color})</span> : ''}: <strong>{ws.quantity}</strong> pcs
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              })()}
             </div>
           )}
           <div className="form-group">
             <label className="form-label">To Worker <span style={{ color: 'var(--danger-color)' }}>*</span></label>
             <select className="form-input" value={transferForm.to_worker}
-              onChange={e => setTransferForm(p => ({ ...p, to_worker: e.target.value }))}>
+              onChange={e => {
+                const name = e.target.value
+                const wt = workerTypeMap[name] || ''
+                setTransferForm(p => ({ ...p, to_worker: name, work_type: wt }))
+              }}>
               <option value="">Select Worker...</option>
               {localWorkers.filter(w => w.name !== transferForm.from_worker).map(w => 
                 <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type || 'Job Work'})</option>
               )}
             </select>
             <QuickAddWorker defaultWorkType="Additional Work"
-              onWorkerAdded={(w) => { mergeWorker(w); setTransferForm(p => ({ ...p, to_worker: w.name })) }} />
+              onWorkerAdded={(w) => { mergeWorker(w); setTransferForm(p => ({ ...p, to_worker: w.name, work_type: w.work_type })) }} />
           </div>
+          <FormRow label="Order ID" required>
+            <select className="form-input" value={transferForm.order_id}
+              onChange={e => setTransferForm(p => ({ ...p, order_id: e.target.value, sku_name: '', color: '' }))}>
+              <option value="">Select Order...</option>
+              {transferForm.from_worker
+                ? [...new Set(workerStock
+                    .filter(ws => ws.worker_name === transferForm.from_worker && ws.quantity > 0)
+                    .map(ws => ws.order_id))]
+                    .filter(Boolean)
+                    .sort()
+                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+                : [...new Set(workerStock.map(ws => ws.order_id).filter(Boolean))].sort()
+                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+              }
+            </select>
+          </FormRow>
           <FormRow label="SKU Name" required>
             <select className="form-input" value={transferForm.sku_name}
-              onChange={e => setTransferForm(p => ({ ...p, sku_name: e.target.value, color: '' }))}>
+              onChange={e => {
+                const sku = e.target.value
+                // Find matching stock entries for autofill
+                let matching = workerStock.filter(ws =>
+                  ws.worker_name === transferForm.from_worker &&
+                  ws.sku_name === sku &&
+                  ws.quantity > 0
+                )
+                if (transferForm.order_id) {
+                  matching = matching.filter(ws => ws.order_id === transferForm.order_id)
+                }
+                // Get unique colors
+                const colors = [...new Set(matching.map(ws => ws.color || ''))]
+                // Autofill color if only one option (including empty)
+                const autoColor = colors.length === 1 ? colors[0] : ''
+                // Autofill quantity (total for this SKU, or specific color if only one)
+                const autoQty = matching.reduce((s, ws) => s + ws.quantity, 0)
+                setTransferForm(p => ({
+                  ...p,
+                  sku_name: sku,
+                  color: autoColor,
+                  quantity: String(autoQty)
+                }))
+              }}>
               <option value="">Select SKU...</option>
-              {transferForm.from_worker
-                ? [...new Set(workerStock.filter(ws => ws.worker_name === transferForm.from_worker).map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
-                : [...new Set(workerStock.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
-              }
+              {(() => {
+                let filtered = workerStock.filter(ws => ws.worker_name === transferForm.from_worker && ws.quantity > 0)
+                if (transferForm.order_id) {
+                  filtered = filtered.filter(ws => ws.order_id === transferForm.order_id)
+                }
+                return [...new Set(filtered.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
+              })()}
             </select>
           </FormRow>
           {transferForm.from_worker && transferForm.sku_name && (
@@ -274,12 +364,13 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
                 onChange={e => setTransferForm(p => ({ ...p, color: e.target.value }))}>
                 <option value="">Select Color...</option>
                 <option value="">No Color / Plain</option>
-                {[...new Set(workerStock
-                  .filter(ws => ws.worker_name === transferForm.from_worker && ws.sku_name === transferForm.sku_name)
-                  .map(ws => ws.color || ''))]
-                  .filter(c => c)
-                  .map((color, i) => <option key={i} value={color}>{color}</option>)
-                }
+                {(() => {
+                  let filtered = workerStock.filter(ws => ws.worker_name === transferForm.from_worker && ws.sku_name === transferForm.sku_name)
+                  if (transferForm.order_id) {
+                    filtered = filtered.filter(ws => ws.order_id === transferForm.order_id)
+                  }
+                  return [...new Set(filtered.map(ws => ws.color || ''))].filter(c => c).map((color, i) => <option key={i} value={color}>{color}</option>)
+                })()}
               </select>
             </FormRow>
           )}
@@ -290,7 +381,8 @@ function AdditionalWork({ workers, workerStock, ledger, onRefresh }) {
           <FormRow label="Work Type">
             <select className="form-input" value={transferForm.work_type}
               onChange={e => setTransferForm(p => ({ ...p, work_type: e.target.value }))}>
-              {WORK_TYPES_ADDITIONAL.map(t => <option key={t}>{t}</option>)}
+              <option value="">Select Work Type...</option>
+              {WORK_TYPES_WORKER.map(t => <option key={t}>{t}</option>)}
             </select>
           </FormRow>
           <FormRow label="Date (if backdating)">

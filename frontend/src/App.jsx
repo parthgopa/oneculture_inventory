@@ -16,6 +16,7 @@ import Settings from './components/Settings'
 import Production from './components/Production'
 import ProductionTracker from './components/ProductionTracker'
 import SkuCatalog from './components/SkuCatalog'
+import GeneralLedger from './components/GeneralLedger'
 import AccessGate from './components/AccessGate'
 import Sidebar from './components/Sidebar'
 
@@ -33,6 +34,7 @@ function MainLayout() {
           <Route path="/production" element={<Production />} />
           <Route path="/tracker" element={<ProductionTracker />} />
           <Route path="/skus" element={<SkuCatalog />} />
+          <Route path="/general-ledger" element={<GeneralLedger />} />
           <Route path="/generator" element={<BarcodeGenerator />} />
           <Route path="/batch/:batchId" element={<BatchDetails />} />
           <Route path="/alerts" element={<Alerts />} />

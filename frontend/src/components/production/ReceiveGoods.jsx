@@ -4,12 +4,13 @@ import { apiFetch } from '../../config'
 import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, EditableDateCell, RevertButton } from './helpers'
 import styles from './AdditionalWork.module.css'
 
-function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
+function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
   const [modal, setModal]         = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]         = useState(null)
+  const today = new Date().toISOString().slice(0, 10)
   const [receiveForm, setReceiveForm] = useState({
-    worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: '', order_id: '', item_id: ''
+    worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: today, order_id: '', item_id: ''
   })
 
   // Fetch MRP when SKU and Color are selected
@@ -31,6 +32,10 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
   }, [receiveForm.sku_name, receiveForm.color])
 
   const close = () => { setModal(false); setError(null) }
+
+  // Build order→supplier map for display
+  const orderSupplierMap = {}
+  orders.forEach(o => { orderSupplierMap[o.order_id] = o.supplier_name || '—' })
 
   const skuOptions = workerStock
     .filter(ws => !receiveForm.worker_name || ws.worker_name === receiveForm.worker_name)
@@ -57,7 +62,7 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
         <button
           className="btn btn-outline"
           style={{ borderColor: 'var(--success-color)', color: 'var(--success-color)' }}
-          onClick={() => { setReceiveForm({ worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', order_id: '', item_id: '' }); setModal(true) }}
+          onClick={() => { setReceiveForm({ worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: today, order_id: '', item_id: '' }); setModal(true) }}
         >
           <MdCheckCircle size={17} /> Receive Finished Goods
         </button>
@@ -81,10 +86,24 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
                   <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces in hand</div>
                 </div>
               </div>
-              {items.map((item, idx) => (
-                <div key={idx} className={styles.skuRow}>
-                  <span>{item.sku_name}{item.color ? <span style={{fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6}}>({item.color})</span> : ''}</span>
-                  <span className="badge badge-warning">{item.quantity}</span>
+              {/* Group by order_id */}
+              {Object.entries(items.reduce((acc, item) => {
+                const oid = item.order_id || 'Other'
+                if (!acc[oid]) acc[oid] = []
+                acc[oid].push(item)
+                return acc
+              }, {})).map(([orderId, orderItems]) => (
+                <div key={orderId} style={{ marginBottom: 8, padding: '4px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>
+                    {orderId.startsWith('ORD') ? orderId : 'Other'}
+                    <span style={{ color: '#6366f1', marginLeft: 4 }}>({orderSupplierMap[orderId] || '—'})</span>
+                  </div>
+                  {orderItems.map((item, idx) => (
+                    <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
+                      <span>{item.sku_name}{item.color ? <span style={{fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6}}>({item.color})</span> : ''}</span>
+                      <span className="badge badge-warning">{item.quantity}</span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -112,11 +131,12 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
           <div className="table-container">
             <table className="table">
               <thead>
-                <tr><th>SKU</th><th>From</th><th></th><th>To</th><th>Qty</th><th>Stage</th><th>Date</th><th></th></tr>
+                <tr><th>#</th><th>SKU</th><th>From</th><th></th><th>To</th><th>Qty</th><th>Stage</th><th>Date</th><th></th></tr>
               </thead>
               <tbody>
                 {receiveLedger.map((e, i) => (
                   <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
+                    <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
                     <td>
                       <strong>{e.sku_name}</strong>
                       {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
@@ -157,26 +177,82 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
           </FormRow>
           {receiveForm.worker_name && workerStock.filter(ws => ws.worker_name === receiveForm.worker_name).length > 0 && (
             <div className={styles.holdingInfo}>
-              <strong>Holding:</strong> {workerStock.filter(ws => ws.worker_name === receiveForm.worker_name).map(ws => `${ws.sku_name}${ws.color ? ` (${ws.color})` : ''}: ${ws.quantity}`).join(', ')}
+              <strong>Current Holding:</strong>
+              {(() => {
+                let holdings = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name)
+                // If order selected, filter to that order
+                if (receiveForm.order_id) {
+                  holdings = holdings.filter(ws => ws.order_id === receiveForm.order_id)
+                }
+                // Group by order_id
+                const byOrder = {}
+                holdings.forEach(ws => {
+                  const oid = ws.order_id || 'Other'
+                  if (!byOrder[oid]) byOrder[oid] = []
+                  byOrder[oid].push(ws)
+                })
+                return Object.entries(byOrder).map(([orderId, items]) => (
+                  <div key={orderId} style={{ marginTop: 8, marginLeft: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      {orderId.startsWith('ORD') ? `Order: ${orderId}` : orderId}
+                      <span style={{ fontWeight: 'normal', color: '#6366f1', marginLeft: 4 }}>({orderSupplierMap[orderId] || '—'})</span>
+                    </div>
+                    <div style={{ marginLeft: 8, fontSize: 13 }}>
+                      {items.map((ws, i) => (
+                        <div key={i}>
+                          • {ws.sku_name}{ws.color ? <span style={{ color: 'var(--text-secondary)' }}> ({ws.color})</span> : ''}: <strong>{ws.quantity}</strong> pcs
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              })()}
             </div>
           )}
+          <FormRow label="Order ID" required>
+            <select className="form-input" value={receiveForm.order_id}
+              onChange={e => setReceiveForm(p => ({ ...p, order_id: e.target.value, sku_name: '', color: '' }))}>
+              <option value="">Select Order...</option>
+              {receiveForm.worker_name
+                ? [...new Set(workerStock
+                    .filter(ws => ws.worker_name === receiveForm.worker_name && ws.quantity > 0)
+                    .map(ws => ws.order_id))]
+                    .filter(Boolean)
+                    .sort()
+                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+                : [...new Set(workerStock.map(ws => ws.order_id).filter(Boolean))].sort()
+                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+              }
+            </select>
+          </FormRow>
           <FormRow label="SKU Name" required>
             <select className="form-input" value={receiveForm.sku_name}
               onChange={e => {
                 const sku = e.target.value;
-                // Auto-select color if there's only one color for this SKU
-                const colorsForSku = [...new Set(workerStock
-                  .filter(ws => ws.worker_name === receiveForm.worker_name && ws.sku_name === sku)
-                  .map(ws => ws.color || '')
-                  .filter(c => c)
-                )];
-                const autoColor = colorsForSku.length === 1 ? colorsForSku[0] : '';
-                setReceiveForm(p => ({ ...p, sku_name: sku, color: autoColor }));
+                // Find matching stock for autofill
+                let matching = workerStock.filter(ws =>
+                  ws.worker_name === receiveForm.worker_name &&
+                  ws.sku_name === sku &&
+                  ws.quantity > 0
+                );
+                if (receiveForm.order_id) {
+                  matching = matching.filter(ws => ws.order_id === receiveForm.order_id);
+                }
+                // Get unique colors
+                const colors = [...new Set(matching.map(ws => ws.color || ''))].filter(c => c);
+                const autoColor = colors.length === 1 ? colors[0] : '';
+                // Autofill quantity (total available for this SKU)
+                const autoQty = matching.reduce((s, ws) => s + ws.quantity, 0);
+                setReceiveForm(p => ({ ...p, sku_name: sku, color: autoColor, quantity: String(autoQty) }));
               }}>
               <option value="">Select SKU...</option>
-              {skuOptions.length > 0
-                ? [...new Set(skuOptions.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
-                : <option disabled>— no pieces with this worker —</option>}
+              {(() => {
+                let filtered = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name && ws.quantity > 0);
+                if (receiveForm.order_id) {
+                  filtered = filtered.filter(ws => ws.order_id === receiveForm.order_id);
+                }
+                return [...new Set(filtered.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>);
+              })()}
             </select>
           </FormRow>
           {receiveForm.worker_name && receiveForm.sku_name && (
@@ -185,12 +261,13 @@ function ReceiveGoods({ workers, workerStock, ledger, onRefresh }) {
                 onChange={e => setReceiveForm(p => ({ ...p, color: e.target.value }))}>
                 <option value="">Select Color...</option>
                 <option value="">No Color / Plain</option>
-                {[...new Set(workerStock
-                  .filter(ws => ws.worker_name === receiveForm.worker_name && ws.sku_name === receiveForm.sku_name)
-                  .map(ws => ws.color || ''))]
-                  .filter(c => c)
-                  .map((color, i) => <option key={i} value={color}>{color}</option>)
-                }
+                {(() => {
+                  let filtered = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name && ws.sku_name === receiveForm.sku_name);
+                  if (receiveForm.order_id) {
+                    filtered = filtered.filter(ws => ws.order_id === receiveForm.order_id);
+                  }
+                  return [...new Set(filtered.map(ws => ws.color || ''))].filter(c => c).map((color, i) => <option key={i} value={color}>{color}</option>);
+                })()}
               </select>
             </FormRow>
           )}

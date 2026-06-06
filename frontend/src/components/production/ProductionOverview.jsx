@@ -72,7 +72,7 @@ function ProductionOverview({ stats, workerStock, ledger, readyItems, setActiveT
                     <td><strong>{item.sku_name}</strong></td>
                     <td><span className="badge badge-success">{item.quantity}</span></td>
                     <td>{item.mrp > 0 ? `₹${item.mrp.toFixed(2)}` : '—'}</td>
-                    <td style={{ fontSize: 12 }}>{item.last_received ? new Date(item.last_received).toLocaleDateString() : '—'}</td>
+                    <td style={{ fontSize: 12 }}>{item.last_received ? new Date(item.last_received).toLocaleDateString('en-GB') : '—'}</td>
                     <td>
                       <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
                         onClick={() => setActiveTab('generatebarcode')}>

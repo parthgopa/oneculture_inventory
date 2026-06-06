@@ -37,17 +37,25 @@ def list_sku_names():
 
 @skus_bp.route('/api/skus', methods=['POST'])
 def create_sku():
-    """Create a new SKU entry. Body: { sku_name, description?, image? }"""
+    """Create a new SKU entry. Body: { sku_name, description?, image?, color?, fabric?, mrp? }"""
     data = request.json or {}
     sku_name = (data.get('sku_name') or '').strip()
     if not sku_name:
         return jsonify({'error': 'sku_name is required'}), 400
     if sku_catalog_collection.find_one({'sku_name': sku_name}):
         return jsonify({'error': f'SKU "{sku_name}" already exists'}), 409
+    mrp_raw = data.get('mrp')
+    try:
+        mrp = float(mrp_raw) if mrp_raw not in (None, '') else None
+    except (ValueError, TypeError):
+        return jsonify({'error': 'mrp must be a number'}), 400
     doc = {
         'sku_name': sku_name,
         'description': (data.get('description') or '').strip(),
         'image': data.get('image') or None,
+        'color': (data.get('color') or '').strip(),
+        'fabric': (data.get('fabric') or '').strip(),
+        'mrp': mrp,
         'created_at': datetime.now(),
         'updated_at': datetime.now(),
     }
@@ -65,13 +73,23 @@ def get_sku(sku_name):
 
 @skus_bp.route('/api/skus/<sku_name>', methods=['PATCH'])
 def update_sku(sku_name):
-    """Update description and/or image."""
+    """Update description, image, color, fabric, and/or mrp."""
     data = request.json or {}
     update = {'updated_at': datetime.now()}
     if 'description' in data:
         update['description'] = (data['description'] or '').strip()
     if 'image' in data:
         update['image'] = data['image'] or None
+    if 'color' in data:
+        update['color'] = (data['color'] or '').strip()
+    if 'fabric' in data:
+        update['fabric'] = (data['fabric'] or '').strip()
+    if 'mrp' in data:
+        mrp_raw = data['mrp']
+        try:
+            update['mrp'] = float(mrp_raw) if mrp_raw not in (None, '') else None
+        except (ValueError, TypeError):
+            return jsonify({'error': 'mrp must be a number'}), 400
     result = sku_catalog_collection.update_one({'sku_name': sku_name}, {'$set': update})
     if result.matched_count == 0:
         return jsonify({'error': 'Not found'}), 404

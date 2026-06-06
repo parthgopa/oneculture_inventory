@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import random
 import string
-from db import cloth_orders_collection, work_ledger_collection, workers_collection
+from db import cloth_orders_collection, work_ledger_collection, workers_collection, suppliers_collection
 
 production_bp = Blueprint('production', __name__)
 
@@ -27,6 +27,16 @@ def serialize(doc):
 
 
 # ── Ledger Helper ─────────────────────────────────────────────────────────────
+
+def get_next_ledger_number():
+    """Get next sequential ledger number integer across all work types"""
+    # Find max ledger_number_int across ALL entries with a number assigned
+    last = work_ledger_collection.find_one(
+        {'ledger_number_int': {'$gt': 0}},
+        sort=[('ledger_number_int', -1)]
+    )
+    return (last.get('ledger_number_int', 0) + 1) if last else 1
+
 
 def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None, color=None):
     """
@@ -57,34 +67,34 @@ def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None, color
 
 
 def compute_all_worker_stock():
-    """Compute current holding per (worker, sku, color) - excludes 'company' and supplier entities"""
+    """Compute current holding per (worker, sku, color, order_id) - excludes 'company' and supplier entities"""
     if work_ledger_collection.count_documents({}) == 0:
         return []
 
     pipeline = [
         {'$facet': {
             'received': [{'$group': {
-                '_id': {'entity': '$to_entity', 'sku': '$sku_name', 'color': '$color'},
+                '_id': {'entity': '$to_entity', 'sku': '$sku_name', 'color': '$color', 'order_id': '$order_id'},
                 'total': {'$sum': '$quantity'}
             }}],
             'sent': [{'$group': {
-                '_id': {'entity': '$from_entity', 'sku': '$sku_name', 'color': '$color'},
+                '_id': {'entity': '$from_entity', 'sku': '$sku_name', 'color': '$color', 'order_id': '$order_id'},
                 'total': {'$sum': '$quantity'}
             }}]
         }}
     ]
     result = list(work_ledger_collection.aggregate(pipeline))[0]
-    received_map = {(r['_id']['entity'], r['_id']['sku'], r['_id'].get('color') or ''): r['total'] for r in result['received']}
-    sent_map = {(s['_id']['entity'], s['_id']['sku'], s['_id'].get('color') or ''): s['total'] for s in result['sent']}
+    received_map = {(r['_id']['entity'], r['_id']['sku'], r['_id'].get('color') or '', r['_id'].get('order_id') or ''): r['total'] for r in result['received']}
+    sent_map = {(s['_id']['entity'], s['_id']['sku'], s['_id'].get('color') or '', s['_id'].get('order_id') or ''): s['total'] for s in result['sent']}
 
     all_keys = set(list(received_map.keys()) + list(sent_map.keys()))
     holdings = []
-    for (entity, sku, color) in all_keys:
+    for (entity, sku, color, order_id) in all_keys:
         if not entity or entity.lower() in ('company',) or entity.lower().startswith('supplier'):
             continue
-        holding = received_map.get((entity, sku, color), 0) - sent_map.get((entity, sku, color), 0)
+        holding = received_map.get((entity, sku, color, order_id), 0) - sent_map.get((entity, sku, color, order_id), 0)
         if holding > 0:
-            holdings.append({'worker_name': entity, 'sku_name': sku, 'color': color or '', 'quantity': holding})
+            holdings.append({'worker_name': entity, 'sku_name': sku, 'color': color or '', 'order_id': order_id or '', 'quantity': holding})
     holdings.sort(key=lambda x: (x['worker_name'], x['sku_name'], x['color']))
     return holdings
 
@@ -201,6 +211,7 @@ def create_order():
         for item in items:
             work_ledger_collection.insert_one({
                 'ledger_id': generate_id('L'),
+                'ledger_number_int': get_next_ledger_number(),
                 'order_id': order_id,
                 'item_id': item['item_id'],
                 'sku_name': item['sku_name'],
@@ -240,6 +251,79 @@ def get_order_detail(order_id):
         order = serialize(order)
         ledger = list(work_ledger_collection.find({'order_id': order_id}).sort('created_at', -1))
         return jsonify({'order': order, 'ledger': [serialize(l) for l in ledger]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/orders/<order_id>', methods=['PATCH'])
+def update_order(order_id):
+    """Edit supplier_name, notes, and item fields (sku_name, fabric_type, color, quantity_ordered, mrp) of a cloth order."""
+    try:
+        data = request.json or {}
+        order = cloth_orders_collection.find_one({'order_id': order_id})
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+
+        set_fields = {}
+        old_supplier = order.get('supplier_name', '')
+        new_supplier = None
+        if 'supplier_name' in data:
+            new_supplier = (data['supplier_name'] or '').strip()
+            set_fields['supplier_name'] = new_supplier
+        if 'notes' in data:
+            set_fields['notes'] = (data['notes'] or '').strip()
+
+        if 'items' in data:
+            existing_items = {i['item_id']: i for i in order.get('items', [])}
+            updated_items = []
+            for item_data in data['items']:
+                item_id = item_data.get('item_id')
+                if item_id and item_id in existing_items:
+                    item = dict(existing_items[item_id])
+                    if 'sku_name' in item_data:
+                        item['sku_name'] = (item_data['sku_name'] or '').strip()
+                    if 'fabric_type' in item_data:
+                        item['fabric_type'] = (item_data['fabric_type'] or '').strip()
+                    if 'color' in item_data:
+                        item['color'] = (item_data['color'] or '').strip()
+                    if 'quantity_ordered' in item_data:
+                        item['quantity_ordered'] = int(item_data['quantity_ordered'] or 0)
+                    if 'mrp' in item_data:
+                        item['mrp'] = float(item_data['mrp'] or 0)
+                    updated_items.append(item)
+                else:
+                    updated_items.append(existing_items.get(item_id, item_data))
+            set_fields['items'] = updated_items
+
+        if set_fields:
+            cloth_orders_collection.update_one({'order_id': order_id}, {'$set': set_fields})
+
+        if new_supplier and old_supplier and new_supplier != old_supplier:
+            work_ledger_collection.update_many(
+                {'order_id': order_id, 'to_entity': old_supplier},
+                {'$set': {'to_entity': new_supplier}}
+            )
+            work_ledger_collection.update_many(
+                {'order_id': order_id, 'from_entity': old_supplier},
+                {'$set': {'from_entity': new_supplier}}
+            )
+
+        updated = cloth_orders_collection.find_one({'order_id': order_id})
+        return jsonify(serialize(updated)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/orders/<order_id>', methods=['DELETE'])
+def delete_order(order_id):
+    """Delete a cloth order and all its associated ledger entries."""
+    try:
+        order = cloth_orders_collection.find_one({'order_id': order_id})
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        work_ledger_collection.delete_many({'order_id': order_id})
+        cloth_orders_collection.delete_one({'order_id': order_id})
+        return jsonify({'message': f'Order {order_id} and its ledger entries deleted'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -298,6 +382,7 @@ def receive_cloth(order_id):
                     pass
             work_ledger_collection.insert_one({
                 'ledger_id': generate_id('L'),
+                'ledger_number_int': get_next_ledger_number(),
                 'order_id': order_id,
                 'item_id': item_id,
                 'sku_name': item['sku_name'],
@@ -383,6 +468,7 @@ def assign_job_work():
 
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
+            'ledger_number_int': get_next_ledger_number(),
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
@@ -437,6 +523,7 @@ def transfer_work():
 
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
+            'ledger_number_int': get_next_ledger_number(),
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
@@ -489,6 +576,7 @@ def receive_final():
 
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
+            'ledger_number_int': get_next_ledger_number(),
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
@@ -578,6 +666,7 @@ def return_to_supplier():
 
         work_ledger_collection.insert_one({
             'ledger_id': generate_id('L'),
+            'ledger_number_int': get_next_ledger_number(),
             'order_id': order_id,
             'item_id': item_id,
             'sku_name': sku_name,
@@ -932,6 +1021,155 @@ def get_worker_history(worker_name):
             'total_pieces_ever':     sum(r.get('n', 0) for r in rcv_map.values()),
             'total_pieces_current':  sum(h['quantity'] for h in current_holdings),
             'total_pieces_completed': sum(c['total_sent'] for c in completed_skus)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Repair: sync ledger supplier names to match cloth orders ──────────────────
+
+@production_bp.route('/api/production/repair/sync-supplier-names', methods=['POST'])
+def repair_sync_supplier_names():
+    """One-time repair: for every cloth order, update ledger entries whose
+    to_entity or from_entity is an old supplier name to match the current
+    order.supplier_name. Safe to run multiple times."""
+    try:
+        orders = list(cloth_orders_collection.find({}, {'order_id': 1, 'supplier_name': 1}))
+        updated_orders = 0
+        for order in orders:
+            order_id = order['order_id']
+            current_supplier = (order.get('supplier_name') or '').strip()
+            if not current_supplier:
+                continue
+            # Find ledger entries for this order whose entity doesn't match
+            ledger_entries = list(work_ledger_collection.find(
+                {'order_id': order_id,
+                 '$or': [
+                     {'to_entity': {'$ne': current_supplier, '$ne': 'company'}},
+                     {'from_entity': {'$ne': current_supplier, '$ne': 'company'}}
+                 ]},
+                {'_id': 1, 'from_entity': 1, 'to_entity': 1}
+            ))
+            for entry in ledger_entries:
+                updates = {}
+                fe = (entry.get('from_entity') or '').strip()
+                te = (entry.get('to_entity') or '').strip()
+                if fe and fe.lower() not in ('company',) and fe != current_supplier:
+                    updates['from_entity'] = current_supplier
+                if te and te.lower() not in ('company',) and te != current_supplier:
+                    updates['to_entity'] = current_supplier
+                if updates:
+                    work_ledger_collection.update_one({'_id': entry['_id']}, {'$set': updates})
+            updated_orders += 1
+        return jsonify({'message': f'Synced ledger entries for {updated_orders} orders'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Suppliers ─────────────────────────────────────────────────────────────────
+
+@production_bp.route('/api/production/suppliers', methods=['GET'])
+def get_suppliers():
+    try:
+        docs = list(suppliers_collection.find({'active': True}).sort('name', 1))
+        return jsonify([serialize(d) for d in docs]), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/suppliers', methods=['POST'])
+def create_supplier():
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        company_name = (data.get('company_name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Supplier name is required'}), 400
+        if suppliers_collection.find_one({'name': name, 'active': True}):
+            return jsonify({'error': f'Supplier "{name}" already exists'}), 409
+        doc = {
+            'supplier_id': generate_id('SUP'),
+            'name': name,
+            'company_name': company_name,
+            'active': True,
+            'created_at': datetime.now()
+        }
+        result = suppliers_collection.insert_one(doc)
+        doc['_id'] = str(result.inserted_id)
+        doc['created_at'] = doc['created_at'].isoformat()
+        return jsonify(doc), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/suppliers/<supplier_id>', methods=['PUT'])
+def update_supplier(supplier_id):
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        company_name = (data.get('company_name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Supplier name is required'}), 400
+        conflict = suppliers_collection.find_one({'name': name, 'active': True, 'supplier_id': {'$ne': supplier_id}})
+        if conflict:
+            return jsonify({'error': f'Another supplier named "{name}" already exists'}), 409
+        suppliers_collection.update_one(
+            {'supplier_id': supplier_id},
+            {'$set': {'name': name, 'company_name': company_name}}
+        )
+        updated = suppliers_collection.find_one({'supplier_id': supplier_id})
+        return jsonify(serialize(updated)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/suppliers/<supplier_id>', methods=['DELETE'])
+def delete_supplier(supplier_id):
+    try:
+        suppliers_collection.update_one({'supplier_id': supplier_id}, {'$set': {'active': False}})
+        return jsonify({'message': 'Supplier removed'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/suppliers/<supplier_name>/holdings', methods=['GET'])
+def get_supplier_holdings(supplier_name):
+    """Return current holdings and full ledger activity for a supplier entity."""
+    try:
+        pipeline_in = [
+            {'$match': {'to_entity': supplier_name}},
+            {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'total': {'$sum': '$quantity'}}}
+        ]
+        pipeline_out = [
+            {'$match': {'from_entity': supplier_name}},
+            {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'total': {'$sum': '$quantity'}}}
+        ]
+        in_map = {(r['_id']['sku'], r['_id'].get('color') or ''): r['total']
+                  for r in work_ledger_collection.aggregate(pipeline_in)}
+        out_map = {(r['_id']['sku'], r['_id'].get('color') or ''): r['total']
+                   for r in work_ledger_collection.aggregate(pipeline_out)}
+
+        all_keys = set(list(in_map.keys()) + list(out_map.keys()))
+        current_holdings = []
+        for (sku, color) in all_keys:
+            qty = in_map.get((sku, color), 0) - out_map.get((sku, color), 0)
+            if qty > 0:
+                current_holdings.append({
+                    'sku_name': sku, 'color': color,
+                    'total_received': in_map.get((sku, color), 0),
+                    'total_sent': out_map.get((sku, color), 0),
+                    'quantity': qty
+                })
+        current_holdings.sort(key=lambda x: (x['sku_name'], x['color']))
+
+        activity = list(work_ledger_collection.find(
+            {'$or': [{'from_entity': supplier_name}, {'to_entity': supplier_name}]}
+        ).sort('created_at', -1).limit(100))
+
+        return jsonify({
+            'current_holdings': current_holdings,
+            'total_pieces_current': sum(h['quantity'] for h in current_holdings),
+            'activity': [serialize(e) for e in activity]
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

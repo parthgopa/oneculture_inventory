@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MdAdd, MdCheckCircle, MdBuild, MdDelete, MdWarning, MdTimeline, MdPeople } from 'react-icons/md'
+import { MdAdd, MdCheckCircle, MdBuild, MdDelete, MdWarning, MdTimeline, MdPeople, MdEdit, MdClose, MdAssignment, MdBook } from 'react-icons/md'
 import { apiFetch } from '../../config'
-import { Badge, Modal, FormRow, STATUS_LABELS, STATUS_COLORS, OrderDateCell } from './helpers'
+import { Badge, Modal, FormRow, STATUS_LABELS, STATUS_COLORS, OrderDateCell, WORK_TYPES_JOB } from './helpers'
 import QuickAddWorker from './QuickAddWorker'
 import styles from './ClothOrders.module.css'
 
@@ -12,29 +12,117 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [skuNames, setSkuNames] = useState([])
+  const [skuMap, setSkuMap] = useState({}) // sku_name → {color, fabric, mrp}
+  const [supplierNames, setSupplierNames] = useState([])
+  const [supplierMap, setSupplierMap] = useState({}) // name → company_name
 
   useEffect(() => {
-    apiFetch('/api/skus/names').then(r => r.json()).then(d => { if (Array.isArray(d)) setSkuNames(d) }).catch(() => {})
+    apiFetch('/api/production/suppliers').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) {
+        setSupplierNames(d.map(s => s.name))
+        const map = {}
+        d.forEach(s => { map[s.name] = s.company_name || '' })
+        setSupplierMap(map)
+      }
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    apiFetch('/api/skus').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) {
+        setSkuNames(d.map(s => s.sku_name))
+        const map = {}
+        d.forEach(s => { map[s.sku_name] = { color: s.color || '', fabric_type: s.fabric || '', mrp: s.mrp != null ? s.mrp : '' } })
+        setSkuMap(map)
+      }
+    }).catch(() => {})
   }, [])
 
   // Create Order form
   const emptyItem = () => ({ sku_name: '', fabric_type: '', color: '', quantity_ordered: '', mrp: '' })
-  const [orderForm, setOrderForm] = useState({ supplier_name: '', notes: '', items: [emptyItem()] })
+  const [orderForm, setOrderForm] = useState({ supplier_name: '', company_name: '', items: [emptyItem()] })
 
   // Receive Cloth
   const [receiveTarget, setReceiveTarget] = useState(null)
   const [receiveItems, setReceiveItems] = useState([])
   const [receiveDate, setReceiveDate] = useState('')
 
+  // Edit Order
+  const [editTarget, setEditTarget] = useState(null)
+  const [editForm, setEditForm] = useState({ supplier_name: '', company_name: '', items: [] })
+
+  // Delete Order
+  const [deleteTarget, setDeleteTarget] = useState(null)
+
   // Assign Work
-  const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', color: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
+  const today = new Date().toISOString().slice(0, 10)
+  const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', color: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: today })
+  const [assignOrder, setAssignOrder] = useState(null) // full-order assign target
   const [localWorkers, setLocalWorkers] = useState(workers)
+
+  // Order Ledger
+  const [orderLedger, setOrderLedger] = useState([])
+  const [viewingOrder, setViewingOrder] = useState(null)
 
   // sync workers prop → local (new workers added via QuickAddWorker)
   const mergeWorker = (w) => setLocalWorkers(prev => prev.find(p => p.worker_id === w.worker_id) ? prev : [...prev, w])
 
-  const close = () => { setModal(null); setError(null) }
+  const close = () => { setModal(null); setError(null); setEditTarget(null); setDeleteTarget(null); setAssignOrder(null); setViewingOrder(null); setOrderLedger([]) }
   const flash = (msg, isError) => { if (isError) setError(msg) }
+
+  // ── Edit Order ──────────────────────────────────────────────────────────────
+  const openEdit = (order) => {
+    setEditTarget(order)
+    setEditForm({
+      supplier_name: order.supplier_name || '',
+      company_name: supplierMap[order.supplier_name] || order.notes || '',
+      items: order.items.map(i => ({ ...i })),
+    })
+    setError(null)
+    setModal('editOrder')
+  }
+
+  const updateEditItem = (idx, field, val) => {
+    const items = [...editForm.items]
+    items[idx][field] = val
+    if (field === 'sku_name' && skuMap[val]) {
+      const s = skuMap[val]
+      items[idx].color = s.color
+      items[idx].fabric_type = s.fabric_type
+      items[idx].mrp = s.mrp
+    }
+    setEditForm(p => ({ ...p, items }))
+  }
+
+  const handleEditOrder = async () => {
+    setSubmitting(true); setError(null)
+    try {
+      const res = await apiFetch(`/api/production/orders/${editTarget.order_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...editForm, notes: editForm.company_name })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      close(); onRefresh()
+    } catch (e) { setError(e.message) }
+    finally { setSubmitting(false) }
+  }
+
+  // ── Delete Order ────────────────────────────────────────────────────────────
+  const openDelete = (order) => {
+    setDeleteTarget(order)
+    setModal('deleteOrder')
+  }
+
+  const handleDeleteOrder = async () => {
+    setSubmitting(true)
+    try {
+      const res = await apiFetch(`/api/production/orders/${deleteTarget.order_id}`, { method: 'DELETE' })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
+      close(); onRefresh()
+    } catch (e) { setError(e.message) }
+    finally { setSubmitting(false) }
+  }
 
   // ── Create Order ────────────────────────────────────────────────────────────
   const handleCreateOrder = async () => {
@@ -42,12 +130,12 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     try {
       const res = await apiFetch('/api/production/orders', {
         method: 'POST',
-        body: JSON.stringify({ ...orderForm, company_name: 'OneCulture' })
+        body: JSON.stringify({ ...orderForm, notes: orderForm.company_name, company_name: 'OneCulture' })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       close(); onRefresh()
-      setOrderForm({ supplier_name: '', notes: '', items: [emptyItem()] })
+      setOrderForm({ supplier_name: '', company_name: '', items: [emptyItem()] })
     } catch (e) { setError(e.message) }
     finally { setSubmitting(false) }
   }
@@ -75,21 +163,64 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   }
 
   // ── Assign Work ─────────────────────────────────────────────────────────────
+  const workerMap = Object.fromEntries(localWorkers.map(w => [w.name, w.work_type || 'Embroidery']))
+
   const openAssign = (order, item) => {
-    setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, color: item.color || '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: '' })
+    const totalQty = item.quantity_ordered || ''
+    setAssignOrder(null)
+    setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, color: item.color || '', worker_name: '', quantity: String(totalQty), work_type: 'Embroidery', notes: '', date: today })
     setLocalWorkers(workers)
     setModal('assign')
+  }
+
+  const openAssignOrder = (order) => {
+    const totalQty = order.items.reduce((s, i) => s + (Number(i.quantity_ordered) || 0), 0)
+    setAssignOrder(order)
+    setAssignForm({ order_id: order.order_id, item_id: '', sku_name: '', color: '', worker_name: '', quantity: String(totalQty), work_type: 'Embroidery', notes: '', date: today })
+    setLocalWorkers(workers)
+    setModal('assign')
+  }
+
+  const openOrderLedger = async (order) => {
+    setViewingOrder(order)
+    try {
+      const res = await apiFetch(`/api/production/orders/${order.order_id}`)
+      const data = await res.json()
+      setOrderLedger(data.ledger || [])
+    } catch (e) {
+      setOrderLedger([])
+    }
+    setModal('orderLedger')
   }
 
   const handleAssign = async () => {
     setSubmitting(true); setError(null)
     try {
-      const res = await apiFetch('/api/production/assign', {
-        method: 'POST',
-        body: JSON.stringify(assignForm)
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      if (assignOrder) {
+        // Full order: fire one assign call per item, distribute quantity proportionally
+        const items = assignOrder.items
+        const totalOrdered = items.reduce((s, i) => s + (Number(i.quantity_ordered) || 0), 0)
+        const totalAssign = Number(assignForm.quantity) || totalOrdered
+        for (const item of items) {
+          const itemQty = totalOrdered > 0
+            ? Math.round((Number(item.quantity_ordered) / totalOrdered) * totalAssign)
+            : Number(item.quantity_ordered)
+          if (itemQty <= 0) continue
+          const res = await apiFetch('/api/production/assign', {
+            method: 'POST',
+            body: JSON.stringify({ ...assignForm, item_id: item.item_id, sku_name: item.sku_name, color: item.color || assignForm.color, quantity: itemQty })
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(`${item.sku_name}: ${data.error}`)
+        }
+      } else {
+        const res = await apiFetch('/api/production/assign', {
+          method: 'POST',
+          body: JSON.stringify(assignForm)
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error)
+      }
       close(); onRefresh()
     } catch (e) { setError(e.message) }
     finally { setSubmitting(false) }
@@ -98,6 +229,12 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const updateItem = (idx, field, val) => {
     const items = [...orderForm.items]
     items[idx][field] = val
+    if (field === 'sku_name' && skuMap[val]) {
+      const s = skuMap[val]
+      items[idx].color = s.color
+      items[idx].fabric_type = s.fabric_type
+      items[idx].mrp = s.mrp
+    }
     setOrderForm(p => ({ ...p, items }))
   }
 
@@ -117,11 +254,25 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
               <div className={styles.orderMeta}>
                 Supplier: <strong>{order.supplier_name || '—'}</strong>
                 &nbsp;·&nbsp;<OrderDateCell orderId={order.order_id} dateStr={order.created_at} onSaved={onRefresh} />
-                {order.notes && <>&nbsp;·&nbsp;{order.notes}</>}
+                {order.notes && <>&nbsp;·&nbsp;<span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{order.notes}</span></>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Badge text={STATUS_LABELS[order.status] || order.status} color={STATUS_COLORS[order.status]} />
+              {order.items.some(i => i.status !== 'in_work' && i.status !== 'completed') && (
+                <button className="btn btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openAssignOrder(order)}>
+                  <MdAssignment size={13} /> Assign All
+                </button>
+              )}
+              <button className="btn btn-outline" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openOrderLedger(order)}>
+                <MdBook size={13} /> Ledger
+              </button>
+              <button className="btn btn-outline" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openEdit(order)}>
+                <MdEdit size={13} /> Edit
+              </button>
+              <button className="btn btn-outline" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--danger-color)', borderColor: 'var(--danger-color)' }} onClick={() => openDelete(order)}>
+                <MdDelete size={13} /> Delete
+              </button>
             </div>
           </div>
 
@@ -142,18 +293,19 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
                     <td><Badge text={STATUS_LABELS[item.status] || item.status} color={STATUS_COLORS[item.status]} /></td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {/* Show assign button for all items */}
-                        <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => openAssign(order, item)}>
-                          <MdBuild size={13} /> Assign Work
-                        </button>
+                        {item.status !== 'in_work' && item.status !== 'completed' && (
+                          <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => openAssign(order, item)}>
+                            <MdBuild size={13} /> Assign
+                          </button>
+                        )}
                         <button className={styles.trackBtn} onClick={() => navigate(`/tracker?sku=${encodeURIComponent(item.sku_name)}`)}>
                           <MdTimeline size={13} /> Track
                         </button>
-                        {workerStock && workerStock.filter(ws => ws.sku_name === item.sku_name).length > 0 && (
+                        {workerStock && workerStock.filter(ws => ws.sku_name === item.sku_name && ws.order_id === order.order_id).length > 0 && (
                           <button className={styles.workerBtn} onClick={() => navigate('/production?tab=workers')} title="View in Workers tab">
                             <MdPeople size={13} />
                             {(() => {
-                              const stock = workerStock.filter(ws => ws.sku_name === item.sku_name)
+                              const stock = workerStock.filter(ws => ws.sku_name === item.sku_name && ws.order_id === order.order_id)
                               const total = stock.reduce((s, ws) => s + ws.quantity, 0)
                               // Group by color for display
                               const byColor = {}
@@ -192,17 +344,25 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
       {/* ── Create Order Modal ─────────────────────────────────────────────── */}
       {modal === 'createOrder' && (
         <Modal title="New Cloth Order" onClose={close} width={720}>
-          {/* Shared datalist for SKU autocomplete */}
           <datalist id="sku-datalist">
             {skuNames.map(name => <option key={name} value={name} />)}
           </datalist>
+          <datalist id="supplier-datalist">
+            {supplierNames.map(name => <option key={name} value={name} />)}
+          </datalist>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} />{error}</div>}
           <FormRow label="Supplier Name">
-            <input className="form-input" placeholder="e.g. Raj Textiles" value={orderForm.supplier_name} onChange={e => setOrderForm(p => ({ ...p, supplier_name: e.target.value }))} />
+            <input className="form-input" placeholder="e.g. Raj Textiles" list="supplier-datalist" value={orderForm.supplier_name}
+              onChange={e => {
+                const name = e.target.value
+                setOrderForm(p => ({ ...p, supplier_name: name, company_name: supplierMap[name] || '' }))
+              }} />
           </FormRow>
-          <FormRow label="Notes">
-            <input className="form-input" placeholder="Optional notes" value={orderForm.notes} onChange={e => setOrderForm(p => ({ ...p, notes: e.target.value }))} />
-          </FormRow>
+          {orderForm.company_name && (
+            <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
+              Company: <strong style={{ color: 'var(--text-primary)' }}>{orderForm.company_name}</strong>
+            </div>
+          )}
           <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 4 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <strong style={{ fontSize: 14 }}>Items</strong>
@@ -248,43 +408,192 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
       )}
 
 
+      {/* ── Edit Order Modal ───────────────────────────────────────────────── */}
+      {modal === 'editOrder' && editTarget && (
+        <Modal title={`Edit Order — ${editTarget.order_id}`} onClose={close} width={720}>
+          <datalist id="sku-datalist-edit">
+            {skuNames.map(name => <option key={name} value={name} />)}
+          </datalist>
+          <datalist id="supplier-datalist-edit">
+            {supplierNames.map(name => <option key={name} value={name} />)}
+          </datalist>
+          {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} /> {error}</div>}
+          <FormRow label="Supplier Name">
+            <input className="form-input" list="supplier-datalist-edit" value={editForm.supplier_name}
+              onChange={e => {
+                const name = e.target.value
+                setEditForm(p => ({ ...p, supplier_name: name, company_name: supplierMap[name] || p.company_name }))
+              }} />
+          </FormRow>
+          {editForm.company_name && (
+            <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
+              Company: <strong style={{ color: 'var(--text-primary)' }}>{editForm.company_name}</strong>
+            </div>
+          )}
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 4 }}>
+            <strong style={{ fontSize: 14 }}>Items</strong>
+            {editForm.items.map((item, idx) => (
+              <div key={item.item_id} className={styles.itemRow} style={{ marginTop: 12 }}>
+                <div className={styles.itemField} style={{ flex: 2 }}>
+                  <label className={styles.fieldLabel}>SKU Name *</label>
+                  <input className="form-input" list="sku-datalist-edit" value={item.sku_name} onChange={e => updateEditItem(idx, 'sku_name', e.target.value)} />
+                </div>
+                <div className={styles.itemField}>
+                  <label className={styles.fieldLabel}>Fabric</label>
+                  <input className="form-input" value={item.fabric_type} onChange={e => updateEditItem(idx, 'fabric_type', e.target.value)} />
+                </div>
+                <div className={styles.itemField}>
+                  <label className={styles.fieldLabel}>Color</label>
+                  <input className="form-input" value={item.color} onChange={e => updateEditItem(idx, 'color', e.target.value)} />
+                </div>
+                <div className={styles.itemField}>
+                  <label className={styles.fieldLabel}>Qty *</label>
+                  <input className="form-input" type="number" min="1" value={item.quantity_ordered} onChange={e => updateEditItem(idx, 'quantity_ordered', e.target.value)} />
+                </div>
+                <div className={styles.itemField}>
+                  <label className={styles.fieldLabel}>MRP ₹</label>
+                  <input className="form-input" type="number" min="0" value={item.mrp} onChange={e => updateEditItem(idx, 'mrp', e.target.value)} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={handleEditOrder} disabled={submitting}>
+            {submitting ? 'Saving...' : 'Save Changes'}
+          </button>
+        </Modal>
+      )}
+
+      {/* ── Delete Confirm Modal ───────────────────────────────────────────── */}
+      {modal === 'deleteOrder' && deleteTarget && (
+        <Modal title="Delete Cloth Order?" onClose={close} width={420}>
+          {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} /> {error}</div>}
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 8px' }}>
+            This will permanently delete order <strong>{deleteTarget.order_id}</strong> and all its ledger entries.
+          </p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 20px' }}>
+            Supplier: <strong>{deleteTarget.supplier_name || '—'}</strong> &nbsp;·&nbsp; {deleteTarget.items?.length || 0} item(s)
+          </p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              className="btn btn-primary"
+              style={{ flex: 1, background: 'var(--danger-color)', borderColor: 'var(--danger-color)' }}
+              disabled={submitting}
+              onClick={handleDeleteOrder}
+            >
+              {submitting ? 'Deleting...' : 'Yes, Delete'}
+            </button>
+            <button className="btn btn-outline" onClick={close} disabled={submitting}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Assign Work Modal ──────────────────────────────────────────────── */}
       {modal === 'assign' && (
-        <Modal title="Assign Work to Worker" onClose={close}>
+        <Modal title={assignOrder ? `Assign All Items — ${assignOrder.order_id}` : 'Assign Work to Worker'} onClose={close}>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
-          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 16, fontSize: 13, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <span>SKU: <strong>{assignForm.sku_name}</strong></span>
-            {assignForm.color && <span>Color: <strong>{assignForm.color}</strong></span>}
+
+          {/* Context summary */}
+          <div style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+            {assignOrder ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span>Supplier: <strong>{assignOrder.supplier_name || '—'}</strong></span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }}>
+                  {assignOrder.items.map(i => (
+                    <span key={i.item_id} style={{ fontSize: 12, background: 'white', border: '1px solid var(--border-color)', borderRadius: 6, padding: '2px 8px' }}>
+                      {i.sku_name}{i.color ? ` · ${i.color}` : ''} <strong>×{i.quantity_ordered}</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <span>SKU: <strong>{assignForm.sku_name}</strong></span>
+                {assignForm.color && <span>Color: <strong>{assignForm.color}</strong></span>}
+              </div>
+            )}
           </div>
-          <FormRow label="Color">
-            <input className="form-input" placeholder="e.g. Red, Blue (leave blank if none)" value={assignForm.color} onChange={e => setAssignForm(p => ({ ...p, color: e.target.value }))} />
-          </FormRow>
+
+          {/* Single-item color override (not shown for full order) */}
+          {!assignOrder && (
+            <FormRow label="Color">
+              <input className="form-input" placeholder="e.g. Red (leave blank if none)" value={assignForm.color} onChange={e => setAssignForm(p => ({ ...p, color: e.target.value }))} />
+            </FormRow>
+          )}
+
+          {/* Worker */}
           <div className="form-group">
             <label className="form-label">Worker <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <select className="form-input" value={assignForm.worker_name} onChange={e => setAssignForm(p => ({ ...p, worker_name: e.target.value }))}>
+            <select className="form-input" value={assignForm.worker_name}
+              onChange={e => {
+                const name = e.target.value
+                const wt = workerMap[name] || assignForm.work_type
+                setAssignForm(p => ({ ...p, worker_name: name, work_type: wt }))
+              }}>
               <option value="">Select Worker...</option>
               {localWorkers.map(w => <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type})</option>)}
             </select>
-            <QuickAddWorker defaultWorkType="Job Work" onWorkerAdded={(w) => { mergeWorker(w); setAssignForm(p => ({ ...p, worker_name: w.name })) }} />
+            <QuickAddWorker defaultWorkType="Job Work" onWorkerAdded={(w) => { mergeWorker(w); setAssignForm(p => ({ ...p, worker_name: w.name, work_type: w.work_type || p.work_type })) }} />
           </div>
+
+          {/* Quantity — editable but pre-filled */}
           <FormRow label="Quantity" required>
-            <input className="form-input" type="number" min="1" placeholder="e.g. 50" value={assignForm.quantity} onChange={e => setAssignForm(p => ({ ...p, quantity: e.target.value }))} />
+            <input className="form-input" type="number" min="1" value={assignForm.quantity} onChange={e => setAssignForm(p => ({ ...p, quantity: e.target.value }))} />
           </FormRow>
+
+          {/* Work Type — auto-filled from worker */}
           <FormRow label="Work Type">
             <select className="form-input" value={assignForm.work_type} onChange={e => setAssignForm(p => ({ ...p, work_type: e.target.value }))}>
-              {['Embroidery', 'Cutting', 'Stitching', 'Printing', 'Dyeing', 'Other'].map(t => <option key={t}>{t}</option>)}
+              {WORK_TYPES_JOB.map(t => <option key={t}>{t}</option>)}
             </select>
           </FormRow>
-          <FormRow label="Date (if backdating)">
+
+          {/* Date — defaults to today */}
+          <FormRow label="Date">
             <input className="form-input" type="date" value={assignForm.date}
               onChange={e => setAssignForm(p => ({ ...p, date: e.target.value }))} />
           </FormRow>
+
           <FormRow label="Notes">
             <input className="form-input" placeholder="Optional" value={assignForm.notes} onChange={e => setAssignForm(p => ({ ...p, notes: e.target.value }))} />
           </FormRow>
+
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleAssign} disabled={submitting}>
             {submitting ? 'Assigning...' : `Assign to ${assignForm.worker_name || 'Worker'}`}
           </button>
+        </Modal>
+      )}
+
+      {/* ── Order Ledger Modal ──────────────────────────────────────────────── */}
+      {modal === 'orderLedger' && viewingOrder && (
+        <Modal title={`Ledger — ${viewingOrder.order_id}`} onClose={close} width={800}>
+          <div style={{ marginBottom: 16 }}>
+            <strong>Supplier:</strong> {viewingOrder.supplier_name} &nbsp;|&nbsp;
+            <strong>Status:</strong> <Badge text={STATUS_LABELS[viewingOrder.status] || viewingOrder.status} color={STATUS_COLORS[viewingOrder.status]} />
+          </div>
+          {orderLedger.length > 0 ? (
+            <div className="table-container" style={{ maxHeight: 400, overflow: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr><th>#</th><th>Stage</th><th>SKU</th><th>From→To</th><th>Qty</th><th>Work Type</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                  {orderLedger.map((e, i) => (
+                    <tr key={i}>
+                      <td style={{ fontSize: 11, textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
+                      <td><Badge text={STATUS_LABELS[e.stage] || e.stage} color={STATUS_COLORS[e.stage] || '#6b7280'} /></td>
+                      <td><strong>{e.sku_name}</strong>{e.color ? <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span> : ''}</td>
+                      <td style={{ fontSize: 12 }}><span style={{ color: 'var(--text-secondary)' }}>{e.from_entity}</span> → <span style={{ fontWeight: 600 }}>{e.to_entity}</span></td>
+                      <td><span className="badge badge-primary">{e.quantity}</span></td>
+                      <td>{e.work_type || '—'}</td>
+                      <td style={{ fontSize: 12 }}>{e.created_at ? new Date(e.created_at).toLocaleDateString('en-GB') : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-state" style={{ padding: 32 }}>No ledger entries for this order.</div>
+          )}
         </Modal>
       )}
     </div>

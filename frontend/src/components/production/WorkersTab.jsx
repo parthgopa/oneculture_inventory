@@ -70,7 +70,7 @@ function WorkerDetailModal({ worker, onClose }) {
                     {c.color && <span style={{ fontSize: 11, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: 4, marginLeft: 8 }}>{c.color}</span>}
                     <div style={{ flex: 1 }} />
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 12 }}>
-                      {c.total_received} pcs · {c.last_date ? new Date(c.last_date).toLocaleDateString() : ''}
+                      {c.total_received} pcs · {c.last_date ? new Date(c.last_date).toLocaleDateString('en-GB') : ''}
                     </span>
                     <span className="badge badge-success">Done</span>
                   </div>
@@ -104,7 +104,8 @@ function WorkerDetailModal({ worker, onClose }) {
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{e.quantity} pcs</div>
                       <Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} />
                       <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
-                        {new Date(e.created_at).toLocaleDateString()}
+                        {e.ledger_number_int ? <span style={{ color: '#6366f1', marginRight: 6 }}>#{e.ledger_number_int}</span> : null}
+                        {new Date(e.created_at).toLocaleDateString('en-GB')}
                       </div>
                     </div>
                   </div>

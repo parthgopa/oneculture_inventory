@@ -12,7 +12,7 @@ function SkuCatalog() {
   const [search, setSearch]       = useState('')
   const [modal, setModal]         = useState(null) // 'create' | 'edit' | 'delete' | 'image'
   const [selected, setSelected]   = useState(null)
-  const [form, setForm]           = useState({ sku_name: '', description: '', image: null })
+  const [form, setForm]           = useState({ sku_name: '', description: '', image: null, color: '', fabric: '', mrp: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]         = useState(null)
   const [success, setSuccess]     = useState(null)
@@ -36,14 +36,21 @@ function SkuCatalog() {
   }
 
   const openCreate = () => {
-    setForm({ sku_name: '', description: '', image: null })
+    setForm({ sku_name: '', description: '', image: null, color: '', fabric: '', mrp: '' })
     setError(null)
     setModal('create')
   }
 
   const openEdit = (sku) => {
     setSelected(sku)
-    setForm({ sku_name: sku.sku_name, description: sku.description || '', image: sku.image || null })
+    setForm({
+      sku_name: sku.sku_name,
+      description: sku.description || '',
+      image: sku.image || null,
+      color: sku.color || '',
+      fabric: sku.fabric || '',
+      mrp: sku.mrp != null ? String(sku.mrp) : '',
+    })
     setError(null)
     setModal('edit')
   }
@@ -57,7 +64,14 @@ function SkuCatalog() {
     try {
       const res = await apiFetch('/api/skus', {
         method: 'POST',
-        body: JSON.stringify({ sku_name: form.sku_name.trim(), description: form.description, image: form.image })
+        body: JSON.stringify({
+          sku_name: form.sku_name.trim(),
+          description: form.description,
+          image: form.image,
+          color: form.color,
+          fabric: form.fabric,
+          mrp: form.mrp !== '' ? form.mrp : null,
+        })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -71,7 +85,13 @@ function SkuCatalog() {
   const handleEdit = async () => {
     setSubmitting(true); setError(null)
     try {
-      const body = { description: form.description, image: form.image }
+      const body = {
+        description: form.description,
+        image: form.image,
+        color: form.color,
+        fabric: form.fabric,
+        mrp: form.mrp !== '' ? form.mrp : null,
+      }
       const res = await apiFetch(`/api/skus/${encodeURIComponent(selected.sku_name)}`, {
         method: 'PATCH',
         body: JSON.stringify(body)
@@ -99,7 +119,9 @@ function SkuCatalog() {
 
   const filtered = skus.filter(s =>
     s.sku_name.toLowerCase().includes(search.toLowerCase()) ||
-    (s.description || '').toLowerCase().includes(search.toLowerCase())
+    (s.description || '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.color || '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.fabric || '').toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -164,6 +186,9 @@ function SkuCatalog() {
                   <th style={{ width: 64 }}>Image</th>
                   <th>SKU Name</th>
                   <th>Description</th>
+                  <th>Color</th>
+                  <th>Fabric</th>
+                  <th>MRP</th>
                   <th>Added</th>
                   <th style={{ width: 120 }}>Actions</th>
                 </tr>
@@ -187,6 +212,26 @@ function SkuCatalog() {
                     </td>
                     <td><strong>{sku.sku_name}</strong></td>
                     <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{sku.description || '—'}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {sku.color ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 12, height: 12, borderRadius: '50%', background: sku.color, border: '1px solid var(--border-color)', display: 'inline-block' }} />
+                          {sku.color}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: 13 }}>
+                      {sku.fabric ? sku.fabric : <span style={{ color: 'var(--text-secondary)' }}>—</span>}
+                    </td>
+                    <td style={{ fontSize: 13 }}>
+                      {sku.mrp != null ? (
+                        <span>₹{Number(sku.mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                      )}
+                    </td>
                     <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{sku.created_at ? new Date(sku.created_at).toLocaleDateString() : '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -244,6 +289,40 @@ function SkuCatalog() {
                 value={form.description}
                 onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
                 autoFocus={modal === 'edit'}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Color</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Ivory, Red"
+                  value={form.color}
+                  onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Fabric</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Cotton, Silk"
+                  value={form.fabric}
+                  onChange={e => setForm(p => ({ ...p, fabric: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">MRP <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(₹, optional)</span></label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 999.00"
+                value={form.mrp}
+                onChange={e => setForm(p => ({ ...p, mrp: e.target.value }))}
               />
             </div>
 

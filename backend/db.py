@@ -9,6 +9,8 @@ load_dotenv()
 
 MONGO_URI = os.getenv('MONGO_URI')
 DB_NAME = os.getenv('DB_NAME')
+print("MONGO_URI:", MONGO_URI)
+print("DB_NAME:", DB_NAME)
 
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
@@ -27,6 +29,9 @@ workers_collection = db['workers']
 
 # SKU catalog — global product name/description/image registry
 sku_catalog_collection = db['sku_catalog']
+
+# Suppliers registry
+suppliers_collection = db['suppliers']
 
 # Constants
 STOCK_THRESHOLD = 10
@@ -62,6 +67,10 @@ def ensure_indexes():
 
     # SKU catalog
     sku_catalog_collection.create_index('sku_name', unique=True)
+
+    # Suppliers
+    suppliers_collection.create_index('supplier_id', unique=True)
+    suppliers_collection.create_index('name')
 
     print("[DB] Indexes ensured")
 

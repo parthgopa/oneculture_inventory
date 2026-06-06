@@ -491,7 +491,7 @@ function GenerateBarcode({ readyItems = [] }) {
                     </td>
                     <td>₹{batch.mrp?.toFixed(2)}</td>
                     <td><span className="badge badge-primary">{batch.quantity}</span></td>
-                    <td>{new Date(batch.created_at).toLocaleDateString()}</td>
+                    <td>{new Date(batch.created_at).toLocaleDateString('en-GB')}</td>
                     <td>
                       <button
                         onClick={() => handleViewDetails(batch.batch_id)}

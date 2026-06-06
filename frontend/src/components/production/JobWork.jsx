@@ -144,11 +144,12 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
           <div className="table-container">
             <table className="table">
               <thead>
-                <tr><th>SKU</th><th>From→To</th><th>Qty</th><th>Work Type</th><th>Stage</th><th>Date</th><th></th></tr>
+                <tr><th>#</th><th>SKU</th><th>From→To</th><th>Qty</th><th>Work Type</th><th>Stage</th><th>Date</th><th></th></tr>
               </thead>
               <tbody>
                 {jobLedger.map((e, i) => (
                   <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
+                    <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
                     <td><strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong></td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
