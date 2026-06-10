@@ -15,6 +15,9 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [skuMap, setSkuMap] = useState({}) // sku_name → {color, fabric, mrp}
   const [supplierNames, setSupplierNames] = useState([])
   const [supplierMap, setSupplierMap] = useState({}) // name → company_name
+  const [nextChalanNumber, setNextChalanNumber] = useState(1)
+  const [sortOrder, setSortOrder] = useState('last_added') // 'last_added' | 'chalan_asc' | 'chalan_desc'
+  const [chalanFilter, setChalanFilter] = useState('')
 
   useEffect(() => {
     apiFetch('/api/production/suppliers').then(r => r.json()).then(d => {
@@ -38,9 +41,28 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     }).catch(() => {})
   }, [])
 
+  // Fetch next chalan number whenever modal opens
+  const fetchNextChalan = (cb) => {
+    apiFetch('/api/production/next-chalan')
+      .then(r => r.json())
+      .then(d => {
+        if (d.chalan_number) {
+          setNextChalanNumber(d.chalan_number)
+          if (cb) cb(d.chalan_number)
+        }
+      })
+      .catch(() => {})
+  }
+
+  // Check if a chalan number is already used by an existing order
+  const getChalanConflict = (num) => {
+    if (!num) return null
+    return orders.find(o => o.chalan_number === Number(num))
+  }
+
   // Create Order form
   const emptyItem = () => ({ sku_name: '', fabric_type: '', color: '', quantity_ordered: '', mrp: '' })
-  const [orderForm, setOrderForm] = useState({ supplier_name: '', company_name: '', items: [emptyItem()] })
+  const [orderForm, setOrderForm] = useState({ supplier_name: '', company_name: '', chalan_number: '', items: [emptyItem()] })
 
   // Receive Cloth
   const [receiveTarget, setReceiveTarget] = useState(null)
@@ -49,7 +71,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
 
   // Edit Order
   const [editTarget, setEditTarget] = useState(null)
-  const [editForm, setEditForm] = useState({ supplier_name: '', company_name: '', items: [] })
+  const [editForm, setEditForm] = useState({ supplier_name: '', company_name: '', chalan_number: '', items: [] })
 
   // Delete Order
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -76,6 +98,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     setEditForm({
       supplier_name: order.supplier_name || '',
       company_name: supplierMap[order.supplier_name] || order.notes || '',
+      chalan_number: order.chalan_number || '',
       items: order.items.map(i => ({ ...i })),
     })
     setError(null)
@@ -99,7 +122,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     try {
       const res = await apiFetch(`/api/production/orders/${editTarget.order_id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ ...editForm, notes: editForm.company_name })
+        body: JSON.stringify({ ...editForm, notes: editForm.company_name, chalan_number: editForm.chalan_number ? Number(editForm.chalan_number) : undefined })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -130,12 +153,12 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     try {
       const res = await apiFetch('/api/production/orders', {
         method: 'POST',
-        body: JSON.stringify({ ...orderForm, notes: orderForm.company_name, company_name: 'OneCulture' })
+        body: JSON.stringify({ ...orderForm, notes: orderForm.company_name, company_name: 'OneCulture', chalan_number: orderForm.chalan_number ? Number(orderForm.chalan_number) : undefined })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       close(); onRefresh()
-      setOrderForm({ supplier_name: '', company_name: '', items: [emptyItem()] })
+      setOrderForm({ supplier_name: '', company_name: '', chalan_number: '', items: [emptyItem()] })
     } catch (e) { setError(e.message) }
     finally { setSubmitting(false) }
   }
@@ -238,19 +261,52 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
     setOrderForm(p => ({ ...p, items }))
   }
 
+  // Sorted and filtered orders
+  const displayedOrders = [...orders]
+    .filter(o => {
+      if (!chalanFilter) return true
+      return String(o.chalan_number || '').includes(chalanFilter)
+    })
+    .sort((a, b) => {
+      if (sortOrder === 'chalan_asc') return (a.chalan_number || 0) - (b.chalan_number || 0)
+      if (sortOrder === 'chalan_desc') return (b.chalan_number || 0) - (a.chalan_number || 0)
+      // last_added: newest first
+      return new Date(b.created_at) - new Date(a.created_at)
+    })
+
   return (
     <div>
-      <div className={styles.toolbar}>
-        <button className="btn btn-primary" onClick={() => setModal('createOrder')}>
+      <div className={styles.toolbar} style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={() => { fetchNextChalan(n => setOrderForm(p => ({ ...p, chalan_number: String(n) }))); setModal('createOrder') }}>
           <MdAdd size={18} /> New Cloth Order
         </button>
+        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
+          <input
+            className="form-input"
+            style={{ width: 140, fontSize: 13 }}
+            placeholder="Filter by Chalan #"
+            value={chalanFilter}
+            onChange={e => setChalanFilter(e.target.value)}
+            type="number"
+            min="1"
+          />
+          <select className="form-input" style={{ width: 160, fontSize: 13 }} value={sortOrder} onChange={e => setSortOrder(e.target.value)}>
+            <option value="last_added">Sort: Last Added</option>
+            <option value="chalan_asc">Sort: Chalan ↑</option>
+            <option value="chalan_desc">Sort: Chalan ↓</option>
+          </select>
+        </div>
       </div>
 
-      {orders.length > 0 ? orders.map(order => (
+      {displayedOrders.length > 0 ? displayedOrders.map(order => (
         <div key={order.order_id} className={styles.orderCard}>
           <div className={styles.orderHeader}>
-            <div>
-              {/* <div className={styles.orderId}>Order: {order.order_id}</div> */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {order.chalan_number != null && (
+                <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--primary-color)', lineHeight: 1.2 }}>
+                  Chalan #{order.chalan_number}
+                </div>
+              )}
               <div className={styles.orderMeta}>
                 Supplier: <strong>{order.supplier_name || '—'}</strong>
                 &nbsp;·&nbsp;<OrderDateCell orderId={order.order_id} dateStr={order.created_at} onSaved={onRefresh} />
@@ -351,13 +407,31 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
             {supplierNames.map(name => <option key={name} value={name} />)}
           </datalist>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} />{error}</div>}
-          <FormRow label="Supplier Name">
-            <input className="form-input" placeholder="e.g. Raj Textiles" list="supplier-datalist" value={orderForm.supplier_name}
-              onChange={e => {
-                const name = e.target.value
-                setOrderForm(p => ({ ...p, supplier_name: name, company_name: supplierMap[name] || '' }))
-              }} />
-          </FormRow>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Supplier Name</label>
+              <input className="form-input" placeholder="e.g. Raj Textiles" list="supplier-datalist" value={orderForm.supplier_name}
+                onChange={e => {
+                  const name = e.target.value
+                  setOrderForm(p => ({ ...p, supplier_name: name, company_name: supplierMap[name] || '' }))
+                }} />
+            </div>
+            <div style={{ width: 140 }}>
+              <label className="form-label">Chalan Number</label>
+              <input className="form-input" type="number" min="1"
+                value={orderForm.chalan_number}
+                onChange={e => setOrderForm(p => ({ ...p, chalan_number: e.target.value }))} />
+              {(() => {
+                const conflict = getChalanConflict(orderForm.chalan_number)
+                if (!conflict) return null
+                return (
+                  <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>
+                    ⚠ Already used by order: <strong>{conflict.order_id}</strong> ({conflict.supplier_name || '—'})
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
           {orderForm.company_name && (
             <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
               Company: <strong style={{ color: 'var(--text-primary)' }}>{orderForm.company_name}</strong>
@@ -418,13 +492,31 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
             {supplierNames.map(name => <option key={name} value={name} />)}
           </datalist>
           {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} /> {error}</div>}
-          <FormRow label="Supplier Name">
-            <input className="form-input" list="supplier-datalist-edit" value={editForm.supplier_name}
-              onChange={e => {
-                const name = e.target.value
-                setEditForm(p => ({ ...p, supplier_name: name, company_name: supplierMap[name] || p.company_name }))
-              }} />
-          </FormRow>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Supplier Name</label>
+              <input className="form-input" list="supplier-datalist-edit" value={editForm.supplier_name}
+                onChange={e => {
+                  const name = e.target.value
+                  setEditForm(p => ({ ...p, supplier_name: name, company_name: supplierMap[name] || p.company_name }))
+                }} />
+            </div>
+            <div style={{ width: 140 }}>
+              <label className="form-label">Chalan Number</label>
+              <input className="form-input" type="number" min="1"
+                value={editForm.chalan_number}
+                onChange={e => setEditForm(p => ({ ...p, chalan_number: e.target.value }))} />
+              {(() => {
+                const conflict = getChalanConflict(editForm.chalan_number)
+                if (!conflict || conflict.order_id === editTarget?.order_id) return null
+                return (
+                  <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>
+                    ⚠ Already used by order: <strong>{conflict.order_id}</strong> ({conflict.supplier_name || '—'})
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
           {editForm.company_name && (
             <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
               Company: <strong style={{ color: 'var(--text-primary)' }}>{editForm.company_name}</strong>

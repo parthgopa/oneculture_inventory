@@ -26,6 +26,17 @@ def serialize(doc):
     return doc
 
 
+# ── Chalan Number Helper ──────────────────────────────────────────────────────
+
+def get_next_chalan_number():
+    """Get next sequential chalan number across all cloth orders"""
+    last = cloth_orders_collection.find_one(
+        {'chalan_number': {'$gt': 0}},
+        sort=[('chalan_number', -1)]
+    )
+    return (last.get('chalan_number', 0) + 1) if last else 1
+
+
 # ── Ledger Helper ─────────────────────────────────────────────────────────────
 
 def get_next_ledger_number():
@@ -196,8 +207,19 @@ def create_order():
                 'status': 'ordered'
             })
 
+        # Accept custom chalan_number from frontend, else auto-generate
+        chalan_number_input = data.get('chalan_number')
+        if chalan_number_input is not None and str(chalan_number_input).strip():
+            try:
+                chalan_number = int(chalan_number_input)
+            except (ValueError, TypeError):
+                chalan_number = get_next_chalan_number()
+        else:
+            chalan_number = get_next_chalan_number()
+
         order = {
             'order_id': order_id,
+            'chalan_number': chalan_number,
             'supplier_name': (data.get('supplier_name') or '').strip(),
             'company_name': (data.get('company_name') or 'OneCulture').strip(),
             'status': 'ordered',
@@ -230,6 +252,15 @@ def create_order():
         return jsonify(order), 201
     except Exception as e:
         print(f"[PRODUCTION] create_order error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/next-chalan', methods=['GET'])
+def get_next_chalan():
+    """Return the next chalan number to be used"""
+    try:
+        return jsonify({'chalan_number': get_next_chalan_number()}), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
@@ -272,6 +303,11 @@ def update_order(order_id):
             set_fields['supplier_name'] = new_supplier
         if 'notes' in data:
             set_fields['notes'] = (data['notes'] or '').strip()
+        if 'chalan_number' in data and data['chalan_number'] is not None:
+            try:
+                set_fields['chalan_number'] = int(data['chalan_number'])
+            except (ValueError, TypeError):
+                pass
 
         if 'items' in data:
             existing_items = {i['item_id']: i for i in order.get('items', [])}
@@ -786,14 +822,17 @@ def get_ready_for_barcode():
         items = list(work_ledger_collection.aggregate(pipeline))
         result = []
         for item in items:
-            result.append({
+            entry = {
                 'sku_name': item['_id']['sku_name'],
                 'color': item['_id'].get('color') or '',
                 'quantity': item['total_received'],
                 'mrp': item.get('mrp') or 0,
                 'order_id': item.get('order_id') or '',
                 'last_received': item['last_received'].isoformat() if item.get('last_received') else None
-            })
+            }
+            print(f"[ready-for-barcode] {entry['sku_name']} ({entry['color']}): total_received={entry['quantity']}, mrp={entry['mrp']}, order_id={entry['order_id']}")
+            result.append(entry)
+        print(f"[ready-for-barcode] Total items: {len(result)}")
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

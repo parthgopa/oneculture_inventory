@@ -194,7 +194,10 @@ function GenerateBarcode({ readyItems = [] }) {
   return (
     <div>
       {/* SKU Status Summary - Always show all SKUs with barcode status */}
-      {readyItems.length > 0 && (
+      {readyItems.length > 0 && readyItems.some(item => {
+        const gen = batchHistory.filter(b => b.sku_name === item.sku_name && (!item.color || b.color === item.color)).reduce((s, b) => s + (b.quantity || b.total_barcodes || 0), 0)
+        return gen < item.quantity
+      }) && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-header">
             <h3 className="card-title">
@@ -205,13 +208,27 @@ function GenerateBarcode({ readyItems = [] }) {
           <div style={{ padding: '0 16px 16px' }}>
             {readyItems.map((item, i) => {
               const skuImage = skuCatalogImages[item.sku_name]
-              // Calculate barcodes generated for this SKU
-              const generatedForSku = batchHistory
-                .filter(b => b.sku_name === item.sku_name && (!item.color || b.color === item.color))
-                .reduce((sum, b) => sum + (b.total_barcodes || 0), 0)
+              // Calculate barcodes generated for this SKU+color
+              const matchingBatches = batchHistory.filter(b =>
+                b.sku_name === item.sku_name &&
+                (!item.color || b.color === item.color)
+              )
+              // API returns 'quantity' (count of barcodes in group), not 'total_barcodes'
+              const generatedForSku = matchingBatches.reduce((sum, b) => sum + (b.quantity || b.total_barcodes || 0), 0)
               const remaining = Math.max(0, item.quantity - generatedForSku)
               const isCompleted = remaining === 0
-              
+              // Debug log
+              console.log('[Barcode Status]', {
+                sku: item.sku_name, color: item.color,
+                totalReceived: item.quantity,
+                matchingBatches: matchingBatches.length,
+                batchDetails: matchingBatches.map(b => ({ batch_id: b.batch_id, quantity: b.quantity, total_barcodes: b.total_barcodes, color: b.color })),
+                generatedForSku, remaining
+              })
+
+              // Hide completed items
+              if (isCompleted) return null
+
               return (
                 <div key={i} style={{
                   display: 'flex',
