@@ -83,31 +83,31 @@ function BatchDetails() {
       })
     } catch (_) {}
 
-    const win = window.open('', '_blank', 'width=900,height=700')
+    const win = window.open('', '_blank', 'width=300,height=400')
     const stickers = barcodes.map(bc => {
       const displayId = editedIds[bc.barcode_id] ?? bc.barcode_id
       return `
         <div class="sticker-page">
           <div class="sticker">
-            <div class="sticker-left">
+            <div class="sticker-top">
               <div class="sticker-info">
                 <div class="sticker-row">
                   <span class="sticker-label">SKU</span>
-                  <span class="sticker-value">${batch_info.sku_name}</span>
-                </div>
-                <div class="sticker-row">
-                  <span class="sticker-label">MRP</span>
-                  <span class="sticker-value sticker-mrp">&#8377;${parseFloat(batch_info.mrp).toFixed(2)}</span>
+                  <span class="sticker-sku">${batch_info.sku_name}</span>
                 </div>
                 ${batch_info.size ? `<div class="sticker-row"><span class="sticker-label">Size</span><span class="sticker-value">${batch_info.size}</span></div>` : ''}
                 ${batch_info.color ? `<div class="sticker-row"><span class="sticker-label">Color</span><span class="sticker-value">${batch_info.color}</span></div>` : ''}
+                <div class="sticker-row">
+                  <span class="sticker-label">MRP</span>
+                  <span class="sticker-mrp">&#8377;${parseFloat(batch_info.mrp).toFixed(2)}</span>
+                </div>
               </div>
               <div class="sticker-barcode">
                 <img src="data:image/png;base64,${bc.image_base64}" alt="barcode" />
                 ${showDetails ? `<div class="sticker-code">${displayId}</div>` : ''}
               </div>
             </div>
-            <div class="sticker-right">
+            <div class="sticker-bottom">
               ${logoDataUrl ? `<img class="sticker-logo" src="${logoDataUrl}" alt="logo" />` : ''}
             </div>
           </div>
@@ -116,44 +116,47 @@ function BatchDetails() {
     win.document.write(`<!DOCTYPE html>
 <html><head><title>Print Stickers \u2014 ${batch_info.sku_name}</title>
 <style>
-  @page { size: 1.9in 2.1in; margin: 0; }
+  @page { size: 2in 2.1in; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; background: #fff; }
+  html, body {
+    width: 2in;
+    font-family: Arial, sans-serif;
+    background: #fff;
+  }
 
   .sticker-page {
-    width: 1.9in;
+    width: 2in;
     height: 2.1in;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     page-break-after: always;
     break-after: page;
+    overflow: hidden;
   }
 
   .sticker {
-    width: 1.82in;
-    height: 2.0in;
-    border: 1.5pt solid #222;
-    border-radius: 4pt;
+    width: 2in;
+    height: 2.1in;
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     overflow: hidden;
     background: #fff;
   }
 
-  .sticker-left {
+  /* Top row: info left, barcode right */
+  .sticker-top {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    border-right: 1.5pt solid #222;
-    min-width: 0;
+    flex-direction: row;
+    min-height: 0;
   }
 
   .sticker-info {
-    padding: 5pt 5pt 4pt 6pt;
+    flex: 1;
+    padding: 5pt 4pt 4pt 6pt;
     display: flex;
     flex-direction: column;
-    gap: 2pt;
+    gap: 3pt;
+    border-right: 1.5pt solid #222;
+    min-width: 0;
   }
 
   .sticker-row {
@@ -168,8 +171,16 @@ function BatchDetails() {
     font-weight: 700;
     color: #555;
     text-transform: uppercase;
-    min-width: 22pt;
+    min-width: 20pt;
     flex-shrink: 0;
+  }
+
+  .sticker-sku {
+    font-size: 10pt;
+    font-weight: 800;
+    color: #111;
+    white-space: normal;
+    word-break: break-word;
   }
 
   .sticker-value {
@@ -178,65 +189,63 @@ function BatchDetails() {
     color: #111;
     white-space: normal;
     word-break: break-word;
-    overflow-wrap: break-word;
   }
 
   .sticker-mrp {
-    font-size: 13pt;
-    font-weight: 800;
-    color: #111;
+    font-size: 8pt;
+    font-weight: 400;
+    color: #333;
   }
 
+  /* Barcode: right column, rotated 90° */
   .sticker-barcode {
-    flex: 1;
+    width: 0.5in;
+    flex-shrink: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 3pt 1pt;
+    overflow: hidden;
+    position: relative;
   }
 
   .sticker-barcode img {
-    width: 100%;
-    height: auto;
-    max-height: 1.1in;
+    width: 1.85in;
+    height: 0.5in;
     object-fit: fill;
     display: block;
+    transform: rotate(270deg);
+    transform-origin: center center;
+    position: absolute;
   }
 
   .sticker-code {
     font-family: Consolas, 'Courier New', monospace;
     font-size: 5pt;
     color: #444;
-    margin-top: 1pt;
     text-align: center;
     word-break: break-all;
+    position: absolute;
+    bottom: 3pt;
+    left: 0;
+    right: 0;
   }
 
-  .sticker-right {
-    width: 0.27in;
+  /* Bottom logo strip */
+  .sticker-bottom {
+    height: 0.25in;
     background: #1c1c1c;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     overflow: hidden;
-    padding: 0;
-    position: relative;
   }
 
   .sticker-logo {
-    width: 2.0in;
-    height: 0.27in;
+    width: 100%;
+    height: 0.25in;
     object-fit: cover;
     display: block;
-    position: absolute;
-    transform: rotate(-90deg);
-    transform-origin: center center;
-    left: 50%;
-    top: 50%;
-    margin-left: -1.0in;
-    margin-top: -0.135in;
   }
 </style>
 </head><body>
@@ -454,17 +463,13 @@ ${stickers}
             <div className={stickerStyles.stickerGrid}>
               {barcodes.map(bc => (
                 <div key={bc.barcode_id} className={stickerStyles.sticker}>
-                  {/* Left column */}
+                  {/* Top row: info left + barcode right */}
                   <div className={stickerStyles.stickerLeft}>
-                    {/* Top info rows */}
+                    {/* Info section */}
                     <div className={stickerStyles.stickerInfo}>
                       <div className={stickerStyles.stickerRow}>
                         <span className={stickerStyles.stickerLabel}>SKU</span>
-                        <span className={stickerStyles.stickerValue}>{batch_info.sku_name}</span>
-                      </div>
-                      <div className={stickerStyles.stickerRow}>
-                        <span className={stickerStyles.stickerLabel}>MRP</span>
-                        <span className={`${stickerStyles.stickerValue} ${stickerStyles.stickerMrp}`}>₹{batch_info.mrp?.toFixed(2)}</span>
+                        <span className={stickerStyles.stickerSkuValue}>{batch_info.sku_name}</span>
                       </div>
                       {batch_info.size && (
                         <div className={stickerStyles.stickerRow}>
@@ -478,8 +483,12 @@ ${stickers}
                           <span className={stickerStyles.stickerValue}>{batch_info.color}</span>
                         </div>
                       )}
+                      <div className={stickerStyles.stickerRow}>
+                        <span className={stickerStyles.stickerLabel}>MRP</span>
+                        <span className={`${stickerStyles.stickerValue} ${stickerStyles.stickerMrp}`}>₹{batch_info.mrp?.toFixed(2)}</span>
+                      </div>
                     </div>
-                    {/* Bottom barcode */}
+                    {/* Barcode on right, rotated vertical */}
                     <div className={stickerStyles.stickerBarcode}>
                       <img
                         src={`data:image/png;base64,${bc.image_base64}`}
@@ -494,7 +503,7 @@ ${stickers}
                       )}
                     </div>
                   </div>
-                  {/* Right dark strip */}
+                  {/* Bottom logo strip */}
                   <div className={stickerStyles.stickerRight}>
                     <img src="/logo.jpeg" alt="OneCulture" className={stickerStyles.stickerLogoImg} />
                   </div>
