@@ -22,7 +22,11 @@ app = Flask(__name__)
 # Explicit CORS configuration for local dev + ngrok tunneling
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
+        "origins": [
+            "http://localhost:5173",          # Your local React/Vite dev server
+            "http://inventory.oneculture.in", # Your Coolify HTTP frontend
+            "https://inventory.oneculture.in" # Your future Coolify HTTPS frontend
+        ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         "allow_headers": ["Content-Type", "Authorization", "ngrok-skip-browser-warning"],
         "supports_credentials": True
