@@ -19,20 +19,29 @@ from routes.production import production_bp
 from routes.skus import skus_bp
 
 app = Flask(__name__)
-# Explicit CORS configuration for local dev + ngrok tunneling
+# Explicit CORS configuration for local dev + production
 CORS(app, resources={
     r"/*": {
         "origins": [
             "http://localhost:5173",          # Your local React/Vite dev server
+            "http://localhost:3000",          # Alternative local dev server
             "http://inventory.oneculture.in", # Your Coolify HTTP frontend
-            "https://inventory.oneculture.in", # Your future Coolify HTTPS frontend
-            "https://backend-inventory.oneculture.in", # Your future Coolify HTTPS frontend
+            "https://inventory.oneculture.in", # Your Coolify HTTPS frontend
+            "https://backend-inventory.oneculture.in", # Your backend URL
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         "allow_headers": ["Content-Type", "Authorization", "ngrok-skip-browser-warning"],
         "supports_credentials": True
     }
 })
+
+# Add after_request handler to ensure CORS headers are set
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,ngrok-skip-browser-warning')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,PATCH')
+    return response
 
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for MongoDB ObjectId and datetime"""
