@@ -25,7 +25,8 @@ CORS(app, resources={
         "origins": [
             "http://localhost:5173",          # Your local React/Vite dev server
             "http://inventory.oneculture.in", # Your Coolify HTTP frontend
-            "https://inventory.oneculture.in" # Your future Coolify HTTPS frontend
+            "https://inventory.oneculture.in", # Your future Coolify HTTPS frontend
+            "https://backend-inventory.oneculture.in", # Your future Coolify HTTPS frontend
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         "allow_headers": ["Content-Type", "Authorization", "ngrok-skip-browser-warning"],
