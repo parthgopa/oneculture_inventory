@@ -34,6 +34,9 @@ sku_catalog_collection = db['sku_catalog']
 # Suppliers registry
 suppliers_collection = db['suppliers']
 
+# Dead stock registry
+dead_stock_collection = db['dead_stock']
+
 # Constants
 STOCK_THRESHOLD = 10
 
@@ -72,6 +75,10 @@ def ensure_indexes():
     # Suppliers
     suppliers_collection.create_index('supplier_id', unique=True)
     suppliers_collection.create_index('name')
+
+    # Dead stock
+    dead_stock_collection.create_index('dead_stock_id', unique=True)
+    dead_stock_collection.create_index([('sku_name', ASCENDING), ('color', ASCENDING)])
 
     print("[DB] Indexes ensured")
 

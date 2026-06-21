@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import random
 import string
-from db import cloth_orders_collection, work_ledger_collection, workers_collection, suppliers_collection
+from db import cloth_orders_collection, work_ledger_collection, workers_collection, suppliers_collection, dead_stock_collection
 
 production_bp = Blueprint('production', __name__)
 
@@ -98,6 +98,18 @@ def compute_all_worker_stock():
     received_map = {(r['_id']['entity'], r['_id']['sku'], r['_id'].get('color') or '', r['_id'].get('order_id') or ''): r['total'] for r in result['received']}
     sent_map = {(s['_id']['entity'], s['_id']['sku'], s['_id'].get('color') or '', s['_id'].get('order_id') or ''): s['total'] for s in result['sent']}
 
+    # Get all unique order_ids to fetch chalan numbers
+    all_order_ids = set()
+    for key in list(received_map.keys()) + list(sent_map.keys()):
+        if key[3]:  # order_id is at index 3
+            all_order_ids.add(key[3])
+    
+    # Fetch chalan numbers for all orders
+    chalan_map = {}
+    if all_order_ids:
+        orders = list(cloth_orders_collection.find({'order_id': {'$in': list(all_order_ids)}}, {'order_id': 1, 'chalan_number': 1}))
+        chalan_map = {order['order_id']: order.get('chalan_number', '') for order in orders}
+
     all_keys = set(list(received_map.keys()) + list(sent_map.keys()))
     holdings = []
     for (entity, sku, color, order_id) in all_keys:
@@ -105,7 +117,14 @@ def compute_all_worker_stock():
             continue
         holding = received_map.get((entity, sku, color, order_id), 0) - sent_map.get((entity, sku, color, order_id), 0)
         if holding > 0:
-            holdings.append({'worker_name': entity, 'sku_name': sku, 'color': color or '', 'order_id': order_id or '', 'quantity': holding})
+            holdings.append({
+                'worker_name': entity, 
+                'sku_name': sku, 
+                'color': color or '', 
+                'order_id': order_id or '', 
+                'quantity': holding,
+                'chalan_number': chalan_map.get(order_id, '')
+            })
     holdings.sort(key=lambda x: (x['worker_name'], x['sku_name'], x['color']))
     return holdings
 
@@ -268,8 +287,65 @@ def get_next_chalan():
 def get_orders():
     try:
         orders = list(cloth_orders_collection.find().sort('created_at', -1))
+        
+        # Get all work ledger entries for supplier->worker assignments
+        assignments = list(work_ledger_collection.find({
+            'stage': 'job_assigned',
+            'from_entity': {'$ne': 'company'},
+            'to_entity': {'$ne': 'company'}
+        }))
+        
+        # Print first few assignments for debugging
+        for i, assignment in enumerate(assignments[:3]):
+            print(f"Assignment {i}: {assignment}")
+        
+        # Group assignments by order_id and item_id
+        assignment_map = {}
+        for assignment in assignments:
+            order_id = assignment.get('order_id')
+            item_id = assignment.get('item_id')
+            sku_name = assignment.get('sku_name')
+            worker_name = assignment.get('to_entity')
+            
+            if order_id not in assignment_map:
+                assignment_map[order_id] = {}
+            
+            # Use item_id first, then sku_name as fallback
+            key = item_id if item_id else sku_name
+            if key not in assignment_map[order_id]:
+                assignment_map[order_id][key] = set()
+            assignment_map[order_id][key].add(worker_name)
+        
+        
+        # Add assigned workers to each order
+        for order in orders:
+            order_id = order.get('order_id')
+            
+            if order_id in assignment_map:
+                
+                # Add assigned workers to each item
+                items = order.get('items', [])
+                for item in items:
+                    item_id = item.get('item_id')
+                    sku_name = item.get('sku_name')
+                    
+                    # Check by item_id first, then by sku_name
+                    workers = None
+                    if item_id and item_id in assignment_map[order_id]:
+                        workers = list(assignment_map[order_id][item_id])
+                    elif sku_name and sku_name in assignment_map[order_id]:
+                        workers = list(assignment_map[order_id][sku_name])
+                    
+                    if workers:
+                        item['assigned_workers'] = sorted(workers)
+                    else:
+                        print(f"=== BACKEND DEBUG: No workers found for item {item_id} / {sku_name}")
+            else:
+                print(f"=== BACKEND DEBUG: No assignments found for order {order_id}")
+        
         return jsonify([serialize(o) for o in orders]), 200
     except Exception as e:
+        print(f"=== BACKEND ERROR: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -717,6 +793,384 @@ def return_to_supplier():
         })
         color_msg = f' ({color})' if color else ''
         return jsonify({'message': f'Returned {quantity} pieces of "{sku_name}"{color_msg} from {from_entity} to {supplier}'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/return-defective', methods=['POST'])
+def return_defective():
+    """
+    Return defective/mistake items from worker to supplier or company (dead stock).
+    Creates ledger entry and optionally adds to dead_stock collection if returned to company.
+    """
+    try:
+        data = request.json
+        from_entity = (data.get('from_entity') or '').strip()  # Worker name
+        order_id = (data.get('order_id') or '').strip()
+        sku_name = (data.get('sku_name') or '').strip()
+        color = (data.get('color') or '').strip()
+        quantity = int(data.get('quantity') or 0)
+        to_entity = (data.get('to_entity') or '').strip()  # 'company' or supplier name
+        reason = (data.get('reason') or '').strip()
+        date_str = (data.get('date') or '').strip()
+
+        if not from_entity or not sku_name or quantity <= 0 or not to_entity:
+            return jsonify({'error': 'from_entity, sku_name, quantity, and to_entity are required'}), 400
+
+        # Check available quantity
+        available = get_entity_holding(from_entity, sku_name=sku_name, color=color)
+        if available < quantity:
+            color_msg = f' ({color})' if color else ''
+            return jsonify({
+                'error': f'"{from_entity}" only has {available} pieces of "{sku_name}"{color_msg} available'
+            }), 400
+
+        created_at = datetime.now()
+        if date_str:
+            try:
+                created_at = datetime.fromisoformat(date_str)
+            except Exception:
+                pass
+
+        # Create ledger entry
+        work_ledger_collection.insert_one({
+            'ledger_id': generate_id('L'),
+            'ledger_number_int': get_next_ledger_number(),
+            'order_id': order_id,
+            'sku_name': sku_name,
+            'color': color,
+            'from_entity': from_entity,
+            'to_entity': to_entity,
+            'quantity': quantity,
+            'stage': 'returned_defective',
+            'work_type': 'Return Defective',
+            'notes': reason or f'Returned defective/mistake to {to_entity}',
+            'created_at': created_at
+        })
+
+        # If returned to company, add to dead stock
+        if to_entity.lower() == 'company':
+            dead_stock_collection.insert_one({
+                'dead_stock_id': generate_id('DS'),
+                'order_id': order_id,
+                'sku_name': sku_name,
+                'color': color,
+                'quantity': quantity,
+                'from_worker': from_entity,
+                'reason': reason,
+                'created_at': created_at
+            })
+
+        color_msg = f' ({color})' if color else ''
+        destination_msg = 'Dead Stock' if to_entity.lower() == 'company' else to_entity
+        return jsonify({
+            'message': f'Returned {quantity} pieces of "{sku_name}"{color_msg} from {from_entity} to {destination_msg}'
+        }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/dead-stock', methods=['GET'])
+def get_dead_stock():
+    """
+    Get dead stock items (items returned to company as defective).
+    Returns aggregated quantities by SKU and color.
+    """
+    try:
+        # Aggregate dead stock by SKU and color
+        pipeline = [
+            {'$group': {
+                '_id': {'sku_name': '$sku_name', 'color': '$color'},
+                'total_quantity': {'$sum': '$quantity'}
+            }},
+            {'$sort': {'_id.sku_name': 1, '_id.color': 1}}
+        ]
+        
+        dead_stock_items = list(dead_stock_collection.aggregate(pipeline))
+        
+        # Format for frontend
+        result = []
+        for item in dead_stock_items:
+            result.append({
+                'sku_name': item['_id']['sku_name'],
+                'color': item['_id'].get('color') or '',
+                'dead_quantity': item['total_quantity']
+            })
+        
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/dead-stock-history', methods=['GET'])
+def get_dead_stock_history():
+    """
+    Get complete dead stock history with all details.
+    Supports filtering by worker, SKU, and date range.
+    """
+    try:
+        # Get query parameters for filtering
+        worker_name = request.args.get('worker_name', '').strip()
+        sku_name = request.args.get('sku_name', '').strip()
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        
+        # Build query
+        query = {}
+        if worker_name:
+            query['from_worker'] = worker_name
+        if sku_name:
+            query['sku_name'] = sku_name
+        if date_from or date_to:
+            query['created_at'] = {}
+            if date_from:
+                try:
+                    query['created_at']['$gte'] = datetime.fromisoformat(date_from)
+                except ValueError:
+                    pass
+            if date_to:
+                try:
+                    query['created_at']['$lte'] = datetime.fromisoformat(date_to)
+                except ValueError:
+                    pass
+        
+        # Fetch dead stock records
+        dead_stock_records = list(dead_stock_collection.find(query).sort('created_at', -1))
+        
+        # Format for frontend
+        result = []
+        for record in dead_stock_records:
+            result.append({
+                'dead_stock_id': record.get('dead_stock_id'),
+                'order_id': record.get('order_id'),
+                'sku_name': record.get('sku_name'),
+                'color': record.get('color', ''),
+                'quantity': record.get('quantity'),
+                'from_worker': record.get('from_worker'),
+                'reason': record.get('reason', ''),
+                'created_at': record.get('created_at').isoformat() if record.get('created_at') else None
+            })
+        
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/receive-final-bulk', methods=['POST'])
+def receive_final_bulk():
+    """
+    Bulk receive all SKUs for a specific order from a worker.
+    Loops through all SKUs in the order and creates receive entries.
+    """
+    try:
+        data = request.json
+        worker_name = (data.get('worker_name') or '').strip()
+        order_id = (data.get('order_id') or '').strip()
+        date_str = (data.get('date') or '').strip()
+        notes = (data.get('notes') or '').strip()
+
+        if not worker_name or not order_id:
+            return jsonify({'error': 'worker_name and order_id are required'}), 400
+
+        created_at = datetime.now()
+        if date_str:
+            try:
+                created_at = datetime.fromisoformat(date_str)
+            except Exception:
+                pass
+
+        # Get all holdings for this worker and order
+        holdings = list(work_ledger_collection.aggregate([
+            {'$match': {
+                'to_entity': worker_name,
+                'order_id': order_id,
+                'stage': {'$nin': ['final_received', 'returned_to_supplier', 'returned_defective']}
+            }},
+            {'$group': {
+                '_id': {'sku_name': '$sku_name', 'color': '$color'},
+                'total_quantity': {'$sum': '$quantity'},
+                'order_id': {'$first': '$order_id'},
+                'item_id': {'$first': '$item_id'}
+            }}
+        ]))
+
+        if not holdings:
+            return jsonify({'error': f'No holdings found for worker {worker_name} in order {order_id}'}), 400
+
+        # Get order details for MRP
+        order = cloth_orders_collection.find_one({'order_id': order_id})
+        if not order:
+            return jsonify({'error': f'Order {order_id} not found'}), 404
+
+        # Create MRP map from order items
+        mrp_map = {}
+        if order.get('items'):
+            for item in order['items']:
+                key = f"{item.get('sku_name', '')}|{item.get('color', '')}"
+                mrp_map[key] = item.get('mrp', 0)
+
+        results = []
+        errors = []
+
+        # Process each holding
+        for holding in holdings:
+            sku_name = holding['_id']['sku_name']
+            color = holding['_id']['color']
+            item_id = holding.get('item_id', '')
+
+            # Get available quantity (current holdings)
+            available = get_entity_holding(worker_name, sku_name=sku_name, color=color)
+            if available <= 0:
+                errors.append(f"No available quantity for {sku_name} ({color}): available {available}")
+                continue
+            
+            # Use available quantity instead of original order quantity
+            quantity = available
+
+            # Get MRP
+            mrp_key = f"{sku_name}|{color}"
+            mrp = mrp_map.get(mrp_key, 0)
+
+            # Create ledger entry
+            ledger_entry = {
+                'ledger_id': generate_id('L'),
+                'ledger_number_int': get_next_ledger_number(),
+                'order_id': order_id,
+                'item_id': item_id,
+                'sku_name': sku_name,
+                'color': color,
+                'from_entity': worker_name,
+                'to_entity': 'company',
+                'quantity': quantity,
+                'stage': 'final_received',
+                'work_type': 'Final Receive',
+                'mrp': mrp,
+                'notes': notes or f'Bulk receive all items from order {order_id}',
+                'created_at': created_at
+            }
+
+            work_ledger_collection.insert_one(ledger_entry)
+            results.append({
+                'sku_name': sku_name,
+                'color': color,
+                'quantity': quantity,
+                'mrp': mrp
+            })
+
+        if errors:
+            return jsonify({
+                'message': f'Bulk receive completed with {len(results)} successes and {len(errors)} errors',
+                'results': results,
+                'errors': errors
+            }), 200
+
+        return jsonify({
+            'message': f'Successfully received {len(results)} SKUs from order {order_id}',
+            'results': results
+        }), 201
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/transfer-bulk', methods=['POST'])
+def transfer_bulk():
+    """
+    Bulk transfer all SKUs for a specific order from one worker to another.
+    Loops through all SKUs in the order and creates transfer entries.
+    """
+    try:
+        data = request.json
+        from_worker = (data.get('from_worker') or '').strip()
+        to_worker = (data.get('to_worker') or '').strip()
+        order_id = (data.get('order_id') or '').strip()
+        date_str = (data.get('date') or '').strip()
+        notes = (data.get('notes') or '').strip()
+
+        if not from_worker or not to_worker or not order_id:
+            return jsonify({'error': 'from_worker, to_worker, and order_id are required'}), 400
+
+        if from_worker == to_worker:
+            return jsonify({'error': 'from_worker and to_worker must be different'}), 400
+
+        created_at = datetime.now()
+        if date_str:
+            try:
+                created_at = datetime.fromisoformat(date_str)
+            except Exception:
+                pass
+
+        # Get all holdings for this worker and order
+        holdings = list(work_ledger_collection.aggregate([
+            {'$match': {
+                'to_entity': from_worker,
+                'order_id': order_id,
+                'stage': {'$nin': ['final_received', 'returned_to_supplier', 'returned_defective', 'transferred']}
+            }},
+            {'$group': {
+                '_id': {'sku_name': '$sku_name', 'color': '$color'},
+                'total_quantity': {'$sum': '$quantity'},
+                'order_id': {'$first': '$order_id'},
+                'item_id': {'$first': '$item_id'}
+            }}
+        ]))
+
+        if not holdings:
+            return jsonify({'error': f'No holdings found for worker {from_worker} in order {order_id}'}), 400
+
+        results = []
+        errors = []
+
+        # Process each holding
+        for holding in holdings:
+            sku_name = holding['_id']['sku_name']
+            color = holding['_id']['color']
+            item_id = holding.get('item_id', '')
+
+            # Get available quantity (current holdings)
+            available = get_entity_holding(from_worker, sku_name=sku_name, color=color)
+            if available <= 0:
+                errors.append(f"No available quantity for {sku_name} ({color}): available {available}")
+                continue
+            
+            # Use available quantity instead of original order quantity
+            quantity = available
+
+            # Create ledger entry for transfer
+            ledger_entry = {
+                'ledger_id': generate_id('L'),
+                'ledger_number_int': get_next_ledger_number(),
+                'order_id': order_id,
+                'item_id': item_id,
+                'sku_name': sku_name,
+                'color': color,
+                'from_entity': from_worker,
+                'to_entity': to_worker,
+                'quantity': quantity,
+                'stage': 'transferred',
+                'work_type': 'Transfer',
+                'notes': notes or f'Transferred from {from_worker} to {to_worker}',
+                'created_at': created_at
+            }
+
+            work_ledger_collection.insert_one(ledger_entry)
+            results.append({
+                'sku_name': sku_name,
+                'color': color,
+                'quantity': quantity,
+                'from_worker': from_worker,
+                'to_worker': to_worker
+            })
+
+        if errors and not results:
+            return jsonify({'error': 'No items could be transferred', 'errors': errors}), 400
+
+        response_data = {
+            'message': f'Bulk transfer completed: {len(results)} items processed, {len(errors)} errors',
+            'results': results,
+            'errors': errors
+        }
+        return jsonify(response_data), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -16,7 +16,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [supplierNames, setSupplierNames] = useState([])
   const [supplierMap, setSupplierMap] = useState({}) // name → company_name
   const [nextChalanNumber, setNextChalanNumber] = useState(1)
-  const [sortOrder, setSortOrder] = useState('last_added') // 'last_added' | 'chalan_asc' | 'chalan_desc'
+  const [sortOrder, setSortOrder] = useState('chalan_desc') // 'last_added' | 'chalan_asc' | 'chalan_desc'
   const [chalanFilter, setChalanFilter] = useState('')
 
   useEffect(() => {
@@ -88,6 +88,38 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
 
   // sync workers prop → local (new workers added via QuickAddWorker)
   const mergeWorker = (w) => setLocalWorkers(prev => prev.find(p => p.worker_id === w.worker_id) ? prev : [...prev, w])
+
+  // Get workers assigned to an order/item from backend data
+  const getAssignedWorkers = (item) => {
+    // The backend now includes assigned_workers in each item
+    return item.assigned_workers || []
+  }
+
+  // Get all unique workers assigned to an order
+  const getOrderAssignedWorkers = (order) => {
+    console.log('=== getOrderAssignedWorkers DEBUG ===')
+    console.log('order:', order)
+    console.log('order.status:', order.status)
+    console.log('order.items:', order.items)
+    
+    if (!order.items) {
+      console.log('No items in order')
+      return []
+    }
+    
+    const allWorkers = new Set()
+    order.items.forEach((item, index) => {
+      console.log(`Item ${index}:`, item)
+      console.log(`Item ${index} assigned_workers:`, item.assigned_workers)
+      if (item.assigned_workers) {
+        item.assigned_workers.forEach(worker => allWorkers.add(worker))
+      }
+    })
+    
+    const result = Array.from(allWorkers).sort()
+    console.log('Final workers:', result)
+    return result
+  }
 
   const close = () => { setModal(null); setError(null); setEditTarget(null); setDeleteTarget(null); setAssignOrder(null); setViewingOrder(null); setOrderLedger([]) }
   const flash = (msg, isError) => { if (isError) setError(msg) }
@@ -315,6 +347,32 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Badge text={STATUS_LABELS[order.status] || order.status} color={STATUS_COLORS[order.status]} />
+              {order.status === 'in_work' && (() => {
+                console.log('=== ORDER LEVEL WORKER DISPLAY DEBUG ===')
+                console.log('Order ID:', order.order_id)
+                console.log('Order status:', order.status)
+                const workers = getOrderAssignedWorkers(order)
+                console.log('Workers returned:', workers)
+                if (workers.length > 0) {
+                  console.log('Rendering worker badge with:', workers)
+                  return (
+                    <span style={{
+                      padding: '3px 10px',
+                      backgroundColor: '#fbbf24',
+                      color: '#78350f',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      boxShadow: '0 1px 3px rgba(251, 191, 36, 0.3)'
+                    }}>
+                      ({workers.join(', ')})
+                    </span>
+                  )
+                } else {
+                  console.log('No workers to display')
+                }
+                return null
+              })()}
               {order.items.some(i => i.status !== 'in_work' && i.status !== 'completed') && (
                 <button className="btn btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openAssignOrder(order)}>
                   <MdAssignment size={13} /> Assign All

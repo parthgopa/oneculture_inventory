@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle, MdInbox, MdQrCode2, MdStorefront } from 'react-icons/md'
+import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle, MdInbox, MdQrCode2, MdStorefront, MdAssignmentReturn } from 'react-icons/md'
 import { apiFetch } from '../config'
 import ProductionOverview from './production/ProductionOverview'
 import ClothOrders from './production/ClothOrders'
@@ -10,6 +10,7 @@ import ReceiveGoods from './production/ReceiveGoods'
 import WorkersTab from './production/WorkersTab'
 import SuppliersTab from './production/SuppliersTab'
 import GenerateBarcode from './production/GenerateBarcode'
+import ReturnDefective from './production/ReturnDefective'
 import styles from './Production.module.css'
 
 const TABS = [
@@ -20,12 +21,16 @@ const TABS = [
   { id: 'jobwork',         label: 'Job Work',         icon: MdBuild },
   { id: 'additionalwork',  label: 'Additional Work',  icon: MdSwapHoriz },
   { id: 'receivegoods',    label: 'Receive Goods',    icon: MdInbox },
+  { id: 'rf',              label: 'RF',               icon: MdAssignmentReturn },
   { id: 'generatebarcode', label: 'Barcode', icon: MdQrCode2 },
 ]
 
 function Production() {
   const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'orders')
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = localStorage.getItem('production-last-tab')
+    return searchParams.get('tab') || savedTab || 'orders'
+  })
   const [loading, setLoading]     = useState(true)
   const [success, setSuccess]     = useState(null)
 
@@ -63,6 +68,11 @@ function Production() {
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Save active tab to localStorage
+  useEffect(() => {
+    localStorage.setItem('production-last-tab', activeTab)
+  }, [activeTab])
 
   const onRefresh = useCallback(() => {
     setSuccess('Saved!')
@@ -121,13 +131,16 @@ function Production() {
         <SuppliersTab suppliers={suppliers} onRefresh={onRefresh} />
       )}
       {activeTab === 'jobwork' && (
-        <JobWork workers={workers} workerStock={workerStock} ledger={ledger} onRefresh={onRefresh} />
+        <JobWork workers={workers} workerStock={workerStock} ledger={ledger} orders={orders} onRefresh={onRefresh} />
       )}
       {activeTab === 'additionalwork' && (
         <AdditionalWork workers={workers} workerStock={workerStock} ledger={ledger} orders={orders} onRefresh={onRefresh} />
       )}
       {activeTab === 'receivegoods' && (
         <ReceiveGoods workers={workers} workerStock={workerStock} ledger={ledger} orders={orders} onRefresh={onRefresh} />
+      )}
+      {activeTab === 'rf' && (
+        <ReturnDefective workers={workers} workerStock={workerStock} onRefresh={onRefresh} />
       )}
       {activeTab === 'generatebarcode' && (
         <GenerateBarcode readyItems={readyItems} />

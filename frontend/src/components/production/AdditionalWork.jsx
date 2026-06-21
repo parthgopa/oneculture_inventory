@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { MdSwapHoriz, MdArrowForward, MdWarning, MdUndo } from 'react-icons/md'
 import { apiFetch } from '../../config'
-import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_WORKER,
-         EditableDateCell, RevertButton } from './helpers'
+import {
+  Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_WORKER,
+  EditableDateCell, RevertButton
+} from './helpers'
 import QuickAddWorker from './QuickAddWorker'
 import styles from './AdditionalWork.module.css'
 
@@ -11,6 +13,7 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [localWorkers, setLocalWorkers] = useState(workers)
+  const [suppliers, setSuppliers] = useState([])
 
   const today = new Date().toISOString().slice(0, 10)
   const [transferForm, setTransferForm] = useState({
@@ -21,7 +24,38 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
     from_entity: '', sku_name: '', color: '', quantity: '', supplier_name: '', notes: ''
   })
 
-  const close = () => { setModal(null); setError(null) }
+  const [bulkTransfer, setBulkTransfer] = useState(false)
+  const [bulkSubmitting, setBulkSubmitting] = useState(false)
+
+  const close = () => { setModal(null); setError(null); setBulkTransfer(false) }
+
+  const handleBulkTransfer = async () => {
+    setBulkSubmitting(true); setError(null)
+    try {
+      const res = await apiFetch('/api/production/transfer-bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          from_worker: transferForm.from_worker,
+          to_worker: transferForm.to_worker,
+          order_id: transferForm.order_id,
+          date: transferForm.date,
+          notes: transferForm.notes
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      // Show success message with details
+      if (data.errors && data.errors.length > 0) {
+        setError(`Bulk transfer completed with ${data.results?.length || 0} successes and ${data.errors.length} errors: ${data.errors.join(', ')}`)
+      } else {
+        close(); onRefresh()
+        // Refresh the page after successful bulk transfer
+        setTimeout(() => window.location.reload(), 500)
+      }
+    } catch (e) { setError(e.message) }
+    finally { setBulkSubmitting(false) }
+  }
 
   const openReturn = () => {
     setReturnForm({ from_entity: '', sku_name: '', color: '', quantity: '', supplier_name: '', notes: '' })
@@ -47,6 +81,16 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
     setLocalWorkers(workers)
     setModal('transfer')
   }
+
+  // Fetch suppliers on mount
+  useEffect(() => {
+    apiFetch('/api/production/suppliers')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setSuppliers(data)
+      })
+      .catch(() => { })
+  }, [])
 
   // Worker name → work_type map for autofill
   const workerTypeMap = Object.fromEntries(workers.map(w => [w.name, w.work_type]))
@@ -105,23 +149,50 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
       {/* Worker Holdings */}
       {Object.keys(grouped).length > 0 ? (
         <div className={styles.workerGrid}>
-          {Object.entries(grouped).map(([workerName, items]) => (
-            <div key={workerName} className={styles.workerCard}>
-              <div className={styles.workerCardHeader}>
-                <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
-                <div>
-                  <div className={styles.workerName}>{workerName}</div>
-                  <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces total</div>
+          {Object.entries(grouped).map(([workerName, items]) => {
+                // Group items by order_id
+                const byOrder = {}
+                items.forEach(item => {
+                  const oid = item.order_id || 'Other'
+                  if (!byOrder[oid]) byOrder[oid] = []
+                  byOrder[oid].push(item)
+                })
+                return (
+                <div key={workerName} className={styles.workerCard}>
+                  <div className={styles.workerCardHeader}>
+                    <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
+                    <div>
+                      <div className={styles.workerName}>{workerName}</div>
+                      <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces total</div>
+                    </div>
+                  </div>
+                  {Object.entries(byOrder).map(([orderId, orderItems]) => {
+                    const chalanNumber = orderItems[0]?.chalan_number || ''
+                    return (
+                      <div key={orderId} style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6, border: '1px solid var(--border-color, #e5e7eb)' }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {chalanNumber && (
+                            <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>
+                              # ({chalanNumber})
+                            </span>
+                          )}
+                          <span style={{ color: 'var(--text-primary)' }}>
+                            {orderId.startsWith('ORD') ? orderId : 'Other'}
+                          </span>
+                          <span style={{ color: '#6366f1', fontWeight: 400 }}>({orderSupplierMap[orderId] || '—'})</span>
+                        </div>
+                        {orderItems.map((item, idx) => (
+                          <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
+                            <span>{item.sku_name}{item.color ? <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({item.color})</span> : ''}</span>
+                            <span className="badge badge-warning">{item.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-              {items.map((item, idx) => (
-                <div key={idx} className={styles.skuRow}>
-                  <span>{item.sku_name}{item.color ? <span style={{fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6}}>({item.color})</span> : ''}</span>
-                  <span className="badge badge-warning">{item.quantity}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+                )
+              })}
         </div>
       ) : (
         <div className="card" style={{ marginBottom: 24 }}>
@@ -181,10 +252,11 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 0 }}>
             Return defective or plain pieces from a worker back to the supplier.
           </p>
-          <FormRow label="From Worker" required>
+          <FormRow label="From (Worker / company)" required>
             <select className="form-input" value={returnForm.from_entity}
               onChange={e => setReturnForm(p => ({ ...p, from_entity: e.target.value }))}>
-              <option value="">Select worker...</option>
+              <option value="">Select source...</option>
+              <option value="company">company</option>
               {workers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
                 .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
             </select>
@@ -193,10 +265,20 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
             <select className="form-input" value={returnForm.sku_name}
               onChange={e => {
                 const sku = e.target.value
+                // Get available colors for this SKU and worker
+                const availableColors = returnForm.from_entity
+                  ? [...new Set(workerStock
+                    .filter(ws => ws.worker_name === returnForm.from_entity && ws.sku_name === sku)
+                    .map(ws => ws.color || ''))]
+                  : [...new Set(workerStock
+                    .filter(ws => ws.sku_name === sku)
+                    .map(ws => ws.color || ''))]
+                // Auto-fill color if only one option (including empty)
+                const autoColor = availableColors.length === 1 ? availableColors[0] : ''
                 setReturnForm(p => ({
                   ...p,
                   sku_name: sku,
-                  color: '',
+                  color: autoColor,
                   supplier_name: skuSupplierMap[sku] || p.supplier_name
                 }))
               }}>
@@ -223,12 +305,15 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
             </FormRow>
           )}
           <FormRow label="Quantity" required>
-            <input className="form-input" type="number" min="1" value={returnForm.quantity}
+            <input className="form-input" value={returnForm.quantity}
               onChange={e => setReturnForm(p => ({ ...p, quantity: e.target.value }))} />
           </FormRow>
-          <FormRow label="Supplier Name">
-            <input className="form-input" placeholder="e.g. Raj Textiles" value={returnForm.supplier_name}
-              onChange={e => setReturnForm(p => ({ ...p, supplier_name: e.target.value }))} />
+          <FormRow label="Supplier Name" required>
+            <select className="form-input" value={returnForm.supplier_name}
+              onChange={e => setReturnForm(p => ({ ...p, supplier_name: e.target.value }))}>
+              <option value="">Select supplier...</option>
+              {suppliers.map(s => <option key={s.supplier_id} value={s.name}>{s.name}</option>)}
+            </select>
           </FormRow>
           <FormRow label="Reason / Notes">
             <input className="form-input" placeholder="e.g. Plain saree defect" value={returnForm.notes}
@@ -272,22 +357,35 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
                   if (!byOrder[oid]) byOrder[oid] = []
                   byOrder[oid].push(ws)
                 })
-                return Object.entries(byOrder).map(([orderId, items]) => (
-                  <div key={orderId} style={{ marginTop: 8, marginLeft: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                      {orderId.startsWith('ORD') ? `Order: ${orderId}` : orderId}
-                      <span style={{ fontWeight: 'normal', color: '#6366f1', marginLeft: 4 }}>({orderSupplierMap[orderId] || '—'})</span>
+
+                return Object.entries(byOrder).map(([orderId, items]) => {
+                  const chalanNumber = items[0]?.chalan_number || ''
+                  return (
+                    <div key={orderId} style={{ marginTop: 8, marginLeft: 8 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                        {chalanNumber && (
+                          <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                            # ({chalanNumber})
+                          </span>
+                        )}
+                        <span>
+                          {orderId.startsWith('ORD') ? `Order: ${orderId}` : orderId}
+                        </span>
+                        <span style={{ fontWeight: 'normal', color: '#6366f1' }}>
+                          ({orderSupplierMap[orderId] || '—'})
+                        </span>
+                      </div>
+                      <div style={{ marginLeft: 8, fontSize: 13 }}>
+                        {items.map((ws, i) => (
+                          <div key={i}>
+                            • {ws.sku_name}{ws.color ? <span style={{ color: 'var(--text-secondary)' }}> ({ws.color})</span> : ''}: <strong>{ws.quantity}</strong> pcs
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ marginLeft: 8, fontSize: 13 }}>
-                      {items.map((ws, i) => (
-                        <div key={i}>
-                          • {ws.sku_name}{ws.color ? <span style={{ color: 'var(--text-secondary)' }}> ({ws.color})</span> : ''}: <strong>{ws.quantity}</strong> pcs
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              })()}
+                  )
+                }) // <--- FIXED: Changed )) to })
+              })()} {/* <--- FIXED: Added () to invoke the function */}
             </div>
           )}
           <div className="form-group">
@@ -299,7 +397,7 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
                 setTransferForm(p => ({ ...p, to_worker: name, work_type: wt }))
               }}>
               <option value="">Select Worker...</option>
-              {localWorkers.filter(w => w.name !== transferForm.from_worker).map(w => 
+              {localWorkers.filter(w => w.name !== transferForm.from_worker).map(w =>
                 <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type || 'Job Work'})</option>
               )}
             </select>
@@ -312,79 +410,195 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
               <option value="">Select Order...</option>
               {transferForm.from_worker
                 ? [...new Set(workerStock
-                    .filter(ws => ws.worker_name === transferForm.from_worker && ws.quantity > 0)
-                    .map(ws => ws.order_id))]
-                    .filter(Boolean)
-                    .sort()
-                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+                  .filter(ws => ws.worker_name === transferForm.from_worker && ws.quantity > 0)
+                  .map(ws => ws.order_id))]
+                  .filter(Boolean)
+                  .sort()
+                  .map(oid => {
+                    const chalanNumber = workerStock.find(ws => ws.order_id === oid)?.chalan_number || ''
+                    const displayText = chalanNumber ? `${oid} / # (${chalanNumber})` : oid
+                    return <option key={oid} value={oid}>{displayText} ({orderSupplierMap[oid] || '—'})</option>
+                  })
                 : [...new Set(workerStock.map(ws => ws.order_id).filter(Boolean))].sort()
-                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+                  .map(oid => {
+                    const chalanNumber = workerStock.find(ws => ws.order_id === oid)?.chalan_number || ''
+                    const displayText = chalanNumber ? `${oid} / # (${chalanNumber})` : oid
+                    return <option key={oid} value={oid}>{displayText} ({orderSupplierMap[oid] || '—'})</option>
+                  })
               }
             </select>
           </FormRow>
-          <FormRow label="SKU Name" required>
-            <select className="form-input" value={transferForm.sku_name}
-              onChange={e => {
-                const sku = e.target.value
-                // Find matching stock entries for autofill
-                let matching = workerStock.filter(ws =>
-                  ws.worker_name === transferForm.from_worker &&
-                  ws.sku_name === sku &&
-                  ws.quantity > 0
-                )
-                if (transferForm.order_id) {
-                  matching = matching.filter(ws => ws.order_id === transferForm.order_id)
-                }
-                // Get unique colors
-                const colors = [...new Set(matching.map(ws => ws.color || ''))]
-                // Autofill color if only one option (including empty)
-                const autoColor = colors.length === 1 ? colors[0] : ''
-                // Autofill quantity (total for this SKU, or specific color if only one)
-                const autoQty = matching.reduce((s, ws) => s + ws.quantity, 0)
-                setTransferForm(p => ({
-                  ...p,
-                  sku_name: sku,
-                  color: autoColor,
-                  quantity: String(autoQty)
-                }))
+
+          {/* Highlighted Bulk Transfer Checkbox */}
+          {transferForm.from_worker && transferForm.to_worker && transferForm.order_id && (() => {
+            const orderHoldings = workerStock.filter(ws =>
+              ws.worker_name === transferForm.from_worker &&
+              ws.order_id === transferForm.order_id &&
+              ws.quantity > 0
+            )
+            const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
+            return uniqueSkus.length > 1
+          })() && (
+              <div style={{
+                backgroundColor: '#fef3c7',
+                border: '2px solid #f59e0b',
+                borderRadius: '8px',
+                padding: '12px',
+                marginBottom: '16px'
               }}>
-              <option value="">Select SKU...</option>
-              {(() => {
-                let filtered = workerStock.filter(ws => ws.worker_name === transferForm.from_worker && ws.quantity > 0)
-                if (transferForm.order_id) {
-                  filtered = filtered.filter(ws => ws.order_id === transferForm.order_id)
-                }
-                return [...new Set(filtered.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
-              })()}
-            </select>
-          </FormRow>
-          {transferForm.from_worker && transferForm.sku_name && (
-            <FormRow label="Color" required>
-              <select className="form-input" value={transferForm.color}
-                onChange={e => setTransferForm(p => ({ ...p, color: e.target.value }))}>
-                <option value="">Select Color...</option>
-                <option value="">No Color / Plain</option>
-                {(() => {
-                  let filtered = workerStock.filter(ws => ws.worker_name === transferForm.from_worker && ws.sku_name === transferForm.sku_name)
-                  if (transferForm.order_id) {
-                    filtered = filtered.filter(ws => ws.order_id === transferForm.order_id)
-                  }
-                  return [...new Set(filtered.map(ws => ws.color || ''))].filter(c => c).map((color, i) => <option key={i} value={color}>{color}</option>)
-                })()}
-              </select>
-            </FormRow>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  color: '#92400e'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={bulkTransfer}
+                    onChange={e => setBulkTransfer(e.target.checked)}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <span style={{ fontSize: '14px' }}>
+                    🚀 TRANSFER ALL SKUs for this order ({(() => {
+                      const orderHoldings = workerStock.filter(ws =>
+                        ws.worker_name === transferForm.from_worker &&
+                        ws.order_id === transferForm.order_id &&
+                        ws.quantity > 0
+                      )
+                      const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
+                      return uniqueSkus.length
+                    })()} different SKUs)
+                  </span>
+                </label>
+                <p style={{
+                  margin: '8px 0 0 0',
+                  fontSize: '12px',
+                  color: '#78350f',
+                  paddingLeft: '26px'
+                }}>
+                  This will transfer all items from this order at once, saving you time!
+                </p>
+              </div>
+            )}
+
+          {/* Show note and calculate totals when bulk transfer is selected */}
+          {bulkTransfer && transferForm.from_worker && transferForm.to_worker && transferForm.order_id && (() => {
+            const orderHoldings = workerStock.filter(ws =>
+              ws.worker_name === transferForm.from_worker &&
+              ws.order_id === transferForm.order_id &&
+              ws.quantity > 0
+            )
+            const totalQuantity = orderHoldings.reduce((sum, item) => sum + item.quantity, 0)
+            const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
+            return (
+              <div style={{
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '6px',
+                padding: '12px',
+                marginBottom: '16px'
+              }}>
+                <p style={{ margin: 0, fontSize: '13px', color: '#166534', fontWeight: 600 }}>
+                  📦 Bulk Transfer Mode:
+                </p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#166534' }}>
+                  The following SKUs are selected for bulk transfer:
+                </p>
+                <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px', fontSize: '11px', color: '#166534' }}>
+                  {uniqueSkus.map(sku => {
+                    const skuItems = orderHoldings.filter(item => item.sku_name === sku)
+                    return (
+                      <li key={sku}>
+                        {sku} ({skuItems.map(item => item.color).filter(c => c).join(', ') || 'No color'}) -
+                        Total: {skuItems.reduce((sum, item) => sum + item.quantity, 0)} pcs
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#166534', fontWeight: 600 }}>
+                  Total Quantity: <span style={{ fontSize: '14px' }}>{totalQuantity}</span> pieces
+                </p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#166534' }}>
+                  Individual SKU selection, quantity, and color will be handled automatically.
+                </p>
+              </div>
+            )
+          })()}
+
+          {/* Individual SKU fields - hidden when bulk transfer is selected */}
+          {!bulkTransfer && (
+            <>
+              <FormRow label="SKU Name" required>
+                <select className="form-input" value={transferForm.sku_name}
+                  onChange={e => {
+                    const sku = e.target.value
+                    // Find matching stock entries for autofill
+                    let matching = workerStock.filter(ws =>
+                      ws.worker_name === transferForm.from_worker &&
+                      ws.sku_name === sku &&
+                      ws.quantity > 0
+                    )
+                    if (transferForm.order_id) {
+                      matching = matching.filter(ws => ws.order_id === transferForm.order_id)
+                    }
+                    // Get unique colors
+                    const colors = [...new Set(matching.map(ws => ws.color || ''))]
+                    // Autofill color if only one option (including empty)
+                    const autoColor = colors.length === 1 ? colors[0] : ''
+                    // Autofill quantity (total for this SKU, or specific color if only one)
+                    const autoQty = matching.reduce((s, ws) => s + ws.quantity, 0)
+                    setTransferForm(p => ({
+                      ...p,
+                      sku_name: sku,
+                      color: autoColor,
+                      quantity: String(autoQty)
+                    }))
+                  }}>
+                  <option value="">Select SKU...</option>
+                  {(() => {
+                    let filtered = workerStock.filter(ws => ws.worker_name === transferForm.from_worker && ws.quantity > 0)
+                    if (transferForm.order_id) {
+                      filtered = filtered.filter(ws => ws.order_id === transferForm.order_id)
+                    }
+                    return [...new Set(filtered.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>)
+                  })()}
+                </select>
+              </FormRow>
+              {transferForm.from_worker && transferForm.sku_name && (
+                <FormRow label="Color" required>
+                  <select className="form-input" value={transferForm.color}
+                    onChange={e => setTransferForm(p => ({ ...p, color: e.target.value }))}>
+                    <option value="">Select Color...</option>
+                    <option value="">No Color / Plain</option>
+                    {(() => {
+                      let filtered = workerStock.filter(ws => ws.worker_name === transferForm.from_worker && ws.sku_name === transferForm.sku_name)
+                      if (transferForm.order_id) {
+                        filtered = filtered.filter(ws => ws.order_id === transferForm.order_id)
+                      }
+                      return [...new Set(filtered.map(ws => ws.color || ''))].filter(c => c).map((color, i) => <option key={i} value={color}>{color}</option>)
+                    })()}
+                  </select>
+                </FormRow>
+              )}
+              <FormRow label="Quantity" required>
+                <input className="form-input"  value={transferForm.quantity}
+                  onChange={e => setTransferForm(p => ({ ...p, quantity: e.target.value }))} />
+              </FormRow>
+              <FormRow label="Work Type">
+                <select className="form-input" value={transferForm.work_type}
+                  onChange={e => setTransferForm(p => ({ ...p, work_type: e.target.value }))}>
+                  <option value="">Select Work Type...</option>
+                  {WORK_TYPES_WORKER.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </FormRow>
+            </>
           )}
-          <FormRow label="Quantity" required>
-            <input className="form-input" type="number" min="1" value={transferForm.quantity}
-              onChange={e => setTransferForm(p => ({ ...p, quantity: e.target.value }))} />
-          </FormRow>
-          <FormRow label="Work Type">
-            <select className="form-input" value={transferForm.work_type}
-              onChange={e => setTransferForm(p => ({ ...p, work_type: e.target.value }))}>
-              <option value="">Select Work Type...</option>
-              {WORK_TYPES_WORKER.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </FormRow>
           <FormRow label="Date (if backdating)">
             <input className="form-input" type="date" value={transferForm.date}
               onChange={e => setTransferForm(p => ({ ...p, date: e.target.value }))} />
@@ -393,9 +607,20 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
             <input className="form-input" placeholder="Optional" value={transferForm.notes}
               onChange={e => setTransferForm(p => ({ ...p, notes: e.target.value }))} />
           </FormRow>
-          <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleTransfer} disabled={submitting}>
-            {submitting ? 'Transferring...' : 'Transfer Pieces'}
-          </button>
+          {bulkTransfer ? (
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+              onClick={handleBulkTransfer}
+              disabled={bulkSubmitting}
+            >
+              {bulkSubmitting ? 'Bulk Transferring...' : '🚀 TRANSFER ALL SKUs'}
+            </button>
+          ) : (
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleTransfer} disabled={submitting}>
+              {submitting ? 'Transferring...' : 'Transfer Pieces'}
+            </button>
+          )}
         </Modal>
       )}
 

@@ -32,9 +32,11 @@ function GenerateBarcode({ readyItems = [] }) {
   const [batchHistory, setBatchHistory]   = useState([])
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [skuCatalogImages, setSkuCatalogImages] = useState({})
+  const [deadStock, setDeadStock] = useState([])
 
   useEffect(() => {
     fetchBatchHistory()
+    fetchDeadStock()
   }, [])
 
   const fetchBatchHistory = async () => {
@@ -46,6 +48,16 @@ function GenerateBarcode({ readyItems = [] }) {
       console.error('Error fetching batch history:', error)
     } finally {
       setLoadingHistory(false)
+    }
+  }
+
+  const fetchDeadStock = async () => {
+    try {
+      const response = await apiFetch('/api/production/dead-stock')
+      const data = await response.json()
+      setDeadStock(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Error fetching dead stock:', error)
     }
   }
 
@@ -154,6 +166,7 @@ function GenerateBarcode({ readyItems = [] }) {
         }))
         // Don't clear product image or fetch history yet
         fetchBatchHistory()
+        fetchDeadStock()
       } else {
         setMessage({
           type: 'error',
@@ -215,7 +228,16 @@ function GenerateBarcode({ readyItems = [] }) {
               )
               // API returns 'quantity' (count of barcodes in group), not 'total_barcodes'
               const generatedForSku = matchingBatches.reduce((sum, b) => sum + (b.quantity || b.total_barcodes || 0), 0)
-              const remaining = Math.max(0, item.quantity - generatedForSku)
+              
+              // Find dead stock for this SKU+color
+              const deadStockItem = deadStock.find(ds => 
+                ds.sku_name === item.sku_name && 
+                (!item.color || ds.color === item.color)
+              )
+              const deadQuantity = deadStockItem ? deadStockItem.dead_quantity : 0
+              
+              // Calculate remaining quantity excluding dead stock
+              const remaining = Math.max(0, item.quantity - generatedForSku - deadQuantity)
               const isCompleted = remaining === 0
               // Debug log
               console.log('[Barcode Status]', {
@@ -223,7 +245,7 @@ function GenerateBarcode({ readyItems = [] }) {
                 totalReceived: item.quantity,
                 matchingBatches: matchingBatches.length,
                 batchDetails: matchingBatches.map(b => ({ batch_id: b.batch_id, quantity: b.quantity, total_barcodes: b.total_barcodes, color: b.color })),
-                generatedForSku, remaining
+                generatedForSku, deadQuantity, remaining
               })
 
               // Hide completed items
@@ -261,7 +283,7 @@ function GenerateBarcode({ readyItems = [] }) {
                       {item.color && <span style={{ fontWeight: 400, color: '#6b7280' }}> · {item.color}</span>}
                     </div>
                     <div style={{ fontSize: 12, color: '#6b7280' }}>
-                      Total: {item.quantity} | Generated: {generatedForSku} | Remaining: {remaining}
+                      Total: {item.quantity} | Generated: {generatedForSku} | Dead Stock: {deadQuantity} | Remaining: {remaining}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>

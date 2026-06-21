@@ -5,9 +5,11 @@ import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, EditableDateCell, Re
 import styles from './AdditionalWork.module.css'
 
 function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
-  const [modal, setModal]         = useState(false)
+  const [modal, setModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError]         = useState(null)
+  const [bulkSubmitting, setBulkSubmitting] = useState(false)
+  const [error, setError] = useState(null)
+  const [bulkReceive, setBulkReceive] = useState(false)
   const today = new Date().toISOString().slice(0, 10)
   const [receiveForm, setReceiveForm] = useState({
     worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: today, order_id: '', item_id: ''
@@ -28,10 +30,10 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
           }))
         }
       })
-      .catch(() => {})
+      .catch(() => { })
   }, [receiveForm.sku_name, receiveForm.color])
 
-  const close = () => { setModal(false); setError(null) }
+  const close = () => { setModal(false); setError(null); setBulkReceive(false) }
 
   // Build order→supplier map for display
   const orderSupplierMap = {}
@@ -50,8 +52,37 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       close(); onRefresh()
+      // Refresh the page after successful receive
+      setTimeout(() => window.location.reload(), 500)
     } catch (e) { setError(e.message) }
     finally { setSubmitting(false) }
+  }
+
+  const handleBulkReceive = async () => {
+    setBulkSubmitting(true); setError(null)
+    try {
+      const res = await apiFetch('/api/production/receive-final-bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          worker_name: receiveForm.worker_name,
+          order_id: receiveForm.order_id,
+          date: receiveForm.date,
+          notes: receiveForm.notes
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      // Show success message with details
+      if (data.errors && data.errors.length > 0) {
+        setError(`Bulk receive completed with ${data.results?.length || 0} successes and ${data.errors.length} errors: ${data.errors.join(', ')}`)
+      } else {
+        close(); onRefresh()
+        // Refresh the page after successful bulk receive
+        setTimeout(() => window.location.reload(), 500)
+      }
+    } catch (e) { setError(e.message) }
+    finally { setBulkSubmitting(false) }
   }
 
   const receiveLedger = ledger.filter(e => ['final_received', 'reverted', 'revert_source'].includes(e.stage))
@@ -92,20 +123,32 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
                 if (!acc[oid]) acc[oid] = []
                 acc[oid].push(item)
                 return acc
-              }, {})).map(([orderId, orderItems]) => (
-                <div key={orderId} style={{ marginBottom: 8, padding: '4px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>
-                    {orderId.startsWith('ORD') ? orderId : 'Other'}
-                    <span style={{ color: '#6366f1', marginLeft: 4 }}>({orderSupplierMap[orderId] || '—'})</span>
-                  </div>
-                  {orderItems.map((item, idx) => (
-                    <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
-                      <span>{item.sku_name}{item.color ? <span style={{fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6}}>({item.color})</span> : ''}</span>
-                      <span className="badge badge-warning">{item.quantity}</span>
+              }, {})).map(([orderId, orderItems]) => {
+                // Get chalan number from orders
+                const order = orders.find(o => o.order_id === orderId)
+                const chalanNumber = order?.chalan_number || ''
+                return (
+                  <div key={orderId} style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6, border: '1px solid var(--border-color, #e5e7eb)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {chalanNumber && (
+                        <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>
+                          # ({chalanNumber})
+                        </span>
+                      )}
+                      <span style={{ color: 'var(--text-primary)' }}>
+                        {orderId.startsWith('ORD') ? orderId : 'Other'}
+                      </span>
+                      <span style={{ color: '#6366f1', fontWeight: 400 }}>({orderSupplierMap[orderId] || '—'})</span>
                     </div>
-                  ))}
-                </div>
-              ))}
+                    {orderItems.map((item, idx) => (
+                      <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
+                        <span>{item.sku_name}{item.color ? <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({item.color})</span> : ''}</span>
+                        <span className="badge badge-warning">{item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           ))}
         </div>
@@ -191,99 +234,236 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
                   if (!byOrder[oid]) byOrder[oid] = []
                   byOrder[oid].push(ws)
                 })
-                return Object.entries(byOrder).map(([orderId, items]) => (
-                  <div key={orderId} style={{ marginTop: 8, marginLeft: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                      {orderId.startsWith('ORD') ? `Order: ${orderId}` : orderId}
-                      <span style={{ fontWeight: 'normal', color: '#6366f1', marginLeft: 4 }}>({orderSupplierMap[orderId] || '—'})</span>
+
+                return Object.entries(byOrder).map(([orderId, items]) => {
+                  const chalanNumber = items[0]?.chalan_number || ''
+                  return (
+                    <div key={orderId} style={{ marginTop: 8, marginLeft: 8 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                        {chalanNumber && (
+                          <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                            # ({chalanNumber})
+                          </span>
+                        )}
+                        <span>
+                          {orderId.startsWith('ORD') ? `Order: ${orderId}` : orderId}
+                        </span>
+                        <span style={{ fontWeight: 'normal', color: '#6366f1' }}>
+                          ({orderSupplierMap[orderId] || '—'})
+                        </span>
+                      </div>
+                      <div style={{ marginLeft: 8, fontSize: 13 }}>
+                        {items.map((ws, i) => (
+                          <div key={i}>
+                            • {ws.sku_name}{ws.color ? <span style={{ color: 'var(--text-secondary)' }}> ({ws.color})</span> : ''}: <strong>{ws.quantity}</strong> pcs
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ marginLeft: 8, fontSize: 13 }}>
-                      {items.map((ws, i) => (
-                        <div key={i}>
-                          • {ws.sku_name}{ws.color ? <span style={{ color: 'var(--text-secondary)' }}> ({ws.color})</span> : ''}: <strong>{ws.quantity}</strong> pcs
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              })()}
+                  )
+                })
+              })()} {/* <--- FIXED: Added () here to invoke the function */}
             </div>
           )}
-          <FormRow label="Order ID" required>
+          <FormRow label="Order ID / Chalan Number" required>
             <select className="form-input" value={receiveForm.order_id}
-              onChange={e => setReceiveForm(p => ({ ...p, order_id: e.target.value, sku_name: '', color: '' }))}>
+              onChange={e => setReceiveForm(p => ({ ...p, order_id: e.target.value, sku_name: '', color: '', bulkReceive: false }))}>
               <option value="">Select Order...</option>
               {receiveForm.worker_name
                 ? [...new Set(workerStock
-                    .filter(ws => ws.worker_name === receiveForm.worker_name && ws.quantity > 0)
-                    .map(ws => ws.order_id))]
-                    .filter(Boolean)
-                    .sort()
-                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+                  .filter(ws => ws.worker_name === receiveForm.worker_name && ws.quantity > 0)
+                  .map(ws => ws.order_id))]
+                  .filter(Boolean)
+                  .sort()
+                  .map(oid => {
+                    const chalanNumber = workerStock.find(ws => ws.order_id === oid)?.chalan_number || ''
+                    const displayText = chalanNumber ? `${oid} / # (${chalanNumber})` : oid
+                    return <option key={oid} value={oid}>{displayText} ({orderSupplierMap[oid] || '—'})</option>
+                  })
                 : [...new Set(workerStock.map(ws => ws.order_id).filter(Boolean))].sort()
-                    .map(oid => <option key={oid} value={oid}>{oid} ({orderSupplierMap[oid] || '—'})</option>)
+                  .map(oid => {
+                    const chalanNumber = workerStock.find(ws => ws.order_id === oid)?.chalan_number || ''
+                    const displayText = chalanNumber ? `${oid} / # (${chalanNumber})` : oid
+                    return <option key={oid} value={oid}>{displayText} ({orderSupplierMap[oid] || '—'})</option>
+                  })
               }
             </select>
+            {receiveForm.order_id && (() => {
+              const chalanNumber = workerStock.find(ws => ws.order_id === receiveForm.order_id)?.chalan_number || ''
+              return chalanNumber && (
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Selected: {receiveForm.order_id} / <span style={{ color: '#dc2626', fontWeight: 'bold' }}># ({chalanNumber})</span>
+                </div>
+              )
+            })()}
           </FormRow>
-          <FormRow label="SKU Name" required>
-            <select className="form-input" value={receiveForm.sku_name}
-              onChange={e => {
-                const sku = e.target.value;
-                // Find matching stock for autofill
-                let matching = workerStock.filter(ws =>
-                  ws.worker_name === receiveForm.worker_name &&
-                  ws.sku_name === sku &&
-                  ws.quantity > 0
-                );
-                if (receiveForm.order_id) {
-                  matching = matching.filter(ws => ws.order_id === receiveForm.order_id);
-                }
-                // Get unique colors
-                const colors = [...new Set(matching.map(ws => ws.color || ''))].filter(c => c);
-                const autoColor = colors.length === 1 ? colors[0] : '';
-                // Autofill quantity (total available for this SKU)
-                const autoQty = matching.reduce((s, ws) => s + ws.quantity, 0);
-                setReceiveForm(p => ({ ...p, sku_name: sku, color: autoColor, quantity: String(autoQty) }));
+
+          {/* Highlighted Bulk Receive Checkbox */}
+          {receiveForm.worker_name && receiveForm.order_id && (() => {
+            const orderHoldings = workerStock.filter(ws =>
+              ws.worker_name === receiveForm.worker_name &&
+              ws.order_id === receiveForm.order_id &&
+              ws.quantity > 0
+            )
+            const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
+            return uniqueSkus.length > 1
+          })() && (
+              <div style={{
+                backgroundColor: '#fef3c7',
+                border: '2px solid #f59e0b',
+                borderRadius: '8px',
+                padding: '12px',
+                marginBottom: '16px'
               }}>
-              <option value="">Select SKU...</option>
-              {(() => {
-                let filtered = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name && ws.quantity > 0);
-                if (receiveForm.order_id) {
-                  filtered = filtered.filter(ws => ws.order_id === receiveForm.order_id);
-                }
-                return [...new Set(filtered.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>);
-              })()}
-            </select>
-          </FormRow>
-          {receiveForm.worker_name && receiveForm.sku_name && (
-            <FormRow label="Color" required>
-              <select className="form-input" value={receiveForm.color}
-                onChange={e => setReceiveForm(p => ({ ...p, color: e.target.value }))}>
-                <option value="">Select Color...</option>
-                <option value="">No Color / Plain</option>
-                {(() => {
-                  let filtered = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name && ws.sku_name === receiveForm.sku_name);
-                  if (receiveForm.order_id) {
-                    filtered = filtered.filter(ws => ws.order_id === receiveForm.order_id);
-                  }
-                  return [...new Set(filtered.map(ws => ws.color || ''))].filter(c => c).map((color, i) => <option key={i} value={color}>{color}</option>);
-                })()}
-              </select>
-            </FormRow>
-          )}
-          <FormRow label="Quantity Received" required>
-            <input className="form-input" type="number" min="1" value={receiveForm.quantity}
-              onChange={e => setReceiveForm(p => ({ ...p, quantity: e.target.value }))} />
-          </FormRow>
-          <FormRow label="MRP ₹ (for barcode)">
-            <input className="form-input" type="number" min="0" step="0.01" placeholder="e.g. 299" value={receiveForm.mrp}
-              onChange={e => setReceiveForm(p => ({ ...p, mrp: e.target.value }))} />
-            {receiveForm.mrp > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--success-color)', marginTop: 4 }}>
-                ✓ Auto-filled from cloth order
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  color: '#92400e'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={bulkReceive}
+                    onChange={e => setBulkReceive(e.target.checked)}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <span style={{ fontSize: '14px' }}>
+                    🚀 RECEIVE ALL SKUs for this order ({(() => {
+                      const orderHoldings = workerStock.filter(ws =>
+                        ws.worker_name === receiveForm.worker_name &&
+                        ws.order_id === receiveForm.order_id &&
+                        ws.quantity > 0
+                      )
+                      const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
+                      return uniqueSkus.length
+                    })()} different SKUs)
+                  </span>
+                </label>
+                <p style={{
+                  margin: '8px 0 0 0',
+                  fontSize: '12px',
+                  color: '#78350f',
+                  paddingLeft: '26px'
+                }}>
+                  This will receive all items from this order at once, saving you time!
+                </p>
               </div>
             )}
-          </FormRow>
+
+          {/* Show note and calculate totals when bulk receive is selected */}
+          {bulkReceive && receiveForm.worker_name && receiveForm.order_id && (() => {
+            const orderHoldings = workerStock.filter(ws =>
+              ws.worker_name === receiveForm.worker_name &&
+              ws.order_id === receiveForm.order_id &&
+              ws.quantity > 0
+            )
+            const totalQuantity = orderHoldings.reduce((sum, item) => sum + item.quantity, 0)
+            const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
+            return (
+              <div style={{
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '6px',
+                padding: '12px',
+                marginBottom: '16px'
+              }}>
+                <p style={{ margin: 0, fontSize: '13px', color: '#166534', fontWeight: 600 }}>
+                  📦 Bulk Receive Mode:
+                </p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#166534' }}>
+                  The following SKUs are selected for bulk receive:
+                </p>
+                <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px', fontSize: '11px', color: '#166534' }}>
+                  {uniqueSkus.map(sku => {
+                    const skuItems = orderHoldings.filter(item => item.sku_name === sku)
+                    return (
+                      <li key={sku}>
+                        {sku} ({skuItems.map(item => item.color).filter(c => c).join(', ') || 'No color'}) -
+                        Total: {skuItems.reduce((sum, item) => sum + item.quantity, 0)} pcs
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#166534', fontWeight: 600 }}>
+                  Total Quantity: <span style={{ fontSize: '14px' }}>{totalQuantity}</span> pieces
+                </p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#166534' }}>
+                  Individual SKU selection, quantity, and MRP will be handled automatically.
+                </p>
+              </div>
+            )
+          })()}
+
+          {/* Individual SKU fields - hidden when bulk receive is selected */}
+          {!bulkReceive && (
+            <>
+              <FormRow label="SKU Name" required>
+                <select className="form-input" value={receiveForm.sku_name}
+                  onChange={e => {
+                    const sku = e.target.value;
+                    // Find matching stock for autofill
+                    let matching = workerStock.filter(ws =>
+                      ws.worker_name === receiveForm.worker_name &&
+                      ws.sku_name === sku &&
+                      ws.quantity > 0
+                    );
+                    if (receiveForm.order_id) {
+                      matching = matching.filter(ws => ws.order_id === receiveForm.order_id);
+                    }
+                    // Get unique colors
+                    const colors = [...new Set(matching.map(ws => ws.color || ''))].filter(c => c);
+                    const autoColor = colors.length === 1 ? colors[0] : '';
+                    // Autofill quantity (total available for this SKU)
+                    const autoQty = matching.reduce((s, ws) => s + ws.quantity, 0);
+                    setReceiveForm(p => ({ ...p, sku_name: sku, color: autoColor, quantity: String(autoQty) }));
+                  }}>
+                  <option value="">Select SKU...</option>
+                  {(() => {
+                    let filtered = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name && ws.quantity > 0);
+                    if (receiveForm.order_id) {
+                      filtered = filtered.filter(ws => ws.order_id === receiveForm.order_id);
+                    }
+                    return [...new Set(filtered.map(ws => ws.sku_name))].map((sku, i) => <option key={i} value={sku}>{sku}</option>);
+                  })()}
+                </select>
+              </FormRow>
+              {receiveForm.worker_name && receiveForm.sku_name && (
+                <FormRow label="Color" required>
+                  <select className="form-input" value={receiveForm.color}
+                    onChange={e => setReceiveForm(p => ({ ...p, color: e.target.value }))}>
+                    <option value="">Select Color...</option>
+                    <option value="">No Color / Plain</option>
+                    {(() => {
+                      let filtered = workerStock.filter(ws => ws.worker_name === receiveForm.worker_name && ws.sku_name === receiveForm.sku_name);
+                      if (receiveForm.order_id) {
+                        filtered = filtered.filter(ws => ws.order_id === receiveForm.order_id);
+                      }
+                      return [...new Set(filtered.map(ws => ws.color || ''))].filter(c => c).map((color, i) => <option key={i} value={color}>{color}</option>);
+                    })()}
+                  </select>
+                </FormRow>
+              )}
+              <FormRow label="Quantity Received" required>
+                <input className="form-input" value={receiveForm.quantity}
+                  onChange={e => setReceiveForm(p => ({ ...p, quantity: e.target.value }))} />
+              </FormRow>
+              <FormRow label="MRP ₹ (for barcode)">
+                <input className="form-input" type="number" min="0" step="0.01" placeholder="e.g. 299" value={receiveForm.mrp}
+                  onChange={e => setReceiveForm(p => ({ ...p, mrp: e.target.value }))} />
+                {receiveForm.mrp > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--success-color)', marginTop: 4 }}>
+                    ✓ Auto-filled from cloth order
+                  </div>
+                )}
+              </FormRow>
+            </>
+          )}
           <FormRow label="Date (if backdating)">
             <input className="form-input" type="date" value={receiveForm.date}
               onChange={e => setReceiveForm(p => ({ ...p, date: e.target.value }))} />
@@ -292,9 +472,20 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
             <input className="form-input" placeholder="Optional" value={receiveForm.notes}
               onChange={e => setReceiveForm(p => ({ ...p, notes: e.target.value }))} />
           </FormRow>
-          <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleReceiveFinal} disabled={submitting}>
-            {submitting ? 'Receiving...' : 'Receive Finished Goods'}
-          </button>
+          {bulkReceive ? (
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+              onClick={handleBulkReceive}
+              disabled={bulkSubmitting}
+            >
+              {bulkSubmitting ? 'Bulk Receiving...' : '🚀 RECEIVE ALL SKUs'}
+            </button>
+          ) : (
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleReceiveFinal} disabled={submitting}>
+              {submitting ? 'Receiving...' : 'Receive Finished Goods'}
+            </button>
+          )}
         </Modal>
       )}
     </div>

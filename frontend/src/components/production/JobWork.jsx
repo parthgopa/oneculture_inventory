@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { MdBuild, MdArrowForward, MdPeople, MdWarning, MdUndo } from 'react-icons/md'
 import { apiFetch } from '../../config'
 import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_JOB,
@@ -6,11 +6,12 @@ import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_JOB,
 import QuickAddWorker from './QuickAddWorker'
 import styles from './JobWork.module.css'
 
-function JobWork({ workers, workerStock, ledger, onRefresh }) {
+function JobWork({ workers, workerStock, ledger, orders, onRefresh }) {
   const [modal, setModal] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [localWorkers, setLocalWorkers] = useState(workers)
+  const [suppliers, setSuppliers] = useState([])
 
   const [assignForm, setAssignForm] = useState({
     order_id: '', item_id: '', sku_name: '', worker_name: '',
@@ -18,13 +19,13 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
   })
 
   const [returnForm, setReturnForm] = useState({
-    from_entity: '', sku_name: '', quantity: '', supplier_name: '', notes: ''
+    from_entity: '', sku_name: '', color: '', quantity: '', supplier_name: '', notes: ''
   })
 
   const close = () => { setModal(null); setError(null) }
 
   const openReturn = () => {
-    setReturnForm({ from_entity: '', sku_name: '', quantity: '', supplier_name: '', notes: '' })
+    setReturnForm({ from_entity: '', sku_name: '', color: '', quantity: '', supplier_name: '', notes: '' })
     setModal('return')
   }
 
@@ -47,6 +48,16 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
     setLocalWorkers(workers)
     setModal('assign')
   }
+
+  // Fetch suppliers on mount
+  useEffect(() => {
+    apiFetch('/api/production/suppliers')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setSuppliers(data)
+      })
+      .catch(() => {})
+  }, [])
 
   const mergeWorker = (w) => setLocalWorkers(prev => prev.find(p => p.worker_id === w.worker_id) ? prev : [...prev, w])
 
@@ -81,6 +92,10 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
       return acc
     }, {})
 
+  // Build order→supplier map for display
+  const orderSupplierMap = {}
+  orders.forEach(o => { orderSupplierMap[o.order_id] = o.supplier_name || '—' })
+
   const grouped = {}
   workerStock.forEach(ws => {
     if (!grouped[ws.worker_name]) grouped[ws.worker_name] = []
@@ -104,23 +119,50 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
       {/* Worker Cards */}
       {Object.keys(grouped).length > 0 ? (
         <div className={styles.workerGrid}>
-          {Object.entries(grouped).map(([workerName, items]) => (
-            <div key={workerName} className={styles.workerCard}>
-              <div className={styles.workerCardHeader}>
-                <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
-                <div>
-                  <div className={styles.workerName}>{workerName}</div>
-                  <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces total</div>
+          {Object.entries(grouped).map(([workerName, items]) => {
+                // Group items by order_id
+                const byOrder = {}
+                items.forEach(item => {
+                  const oid = item.order_id || 'Other'
+                  if (!byOrder[oid]) byOrder[oid] = []
+                  byOrder[oid].push(item)
+                })
+                return (
+                <div key={workerName} className={styles.workerCard}>
+                  <div className={styles.workerCardHeader}>
+                    <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
+                    <div>
+                      <div className={styles.workerName}>{workerName}</div>
+                      <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces total</div>
+                    </div>
+                  </div>
+                  {Object.entries(byOrder).map(([orderId, orderItems]) => {
+                    const chalanNumber = orderItems[0]?.chalan_number || ''
+                    return (
+                      <div key={orderId} style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6, border: '1px solid var(--border-color, #e5e7eb)' }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {chalanNumber && (
+                            <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>
+                              # ({chalanNumber})
+                            </span>
+                          )}
+                          <span style={{ color: 'var(--text-primary)' }}>
+                            {orderId.startsWith('ORD') ? orderId : 'Other'}
+                          </span>
+                          <span style={{ color: '#6366f1', fontWeight: 400 }}>({orderSupplierMap[orderId] || '—'})</span>
+                        </div>
+                        {orderItems.map((item, idx) => (
+                          <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
+                            <span>{item.sku_name}{item.color ? <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({item.color})</span> : ''}</span>
+                            <span className="badge badge-warning">{item.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-              {items.map((item, idx) => (
-                <div key={idx} className={styles.skuRow}>
-                  <span className={styles.skuName}>{item.sku_name}</span>
-                  <span className="badge badge-warning">{item.quantity}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+                )
+              })}
         </div>
       ) : (
         <div className="card" style={{ marginBottom: 24 }}>
@@ -196,23 +238,55 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
             <select className="form-input" value={returnForm.sku_name}
               onChange={e => {
                 const sku = e.target.value
+                // Get available colors for this SKU and worker
+                const availableColors = returnForm.from_entity
+                  ? [...new Set(workerStock
+                      .filter(ws => ws.worker_name === returnForm.from_entity && ws.sku_name === sku)
+                      .map(ws => ws.color || ''))]
+                  : [...new Set(workerStock
+                      .filter(ws => ws.sku_name === sku)
+                      .map(ws => ws.color || ''))]
+                // Auto-fill color if only one option (including empty)
+                const autoColor = availableColors.length === 1 ? availableColors[0] : ''
                 setReturnForm(p => ({
                   ...p,
                   sku_name: sku,
+                  color: autoColor,
                   supplier_name: skuSupplierMap[sku] || p.supplier_name
                 }))
               }}>
               <option value="">Select SKU...</option>
-              {[...new Set(workerStock.map(ws => ws.sku_name))].map(s => <option key={s}>{s}</option>)}
+              {(returnForm.from_entity
+                ? [...new Set(workerStock.filter(ws => ws.worker_name === returnForm.from_entity).map(ws => ws.sku_name))]
+                : [...new Set(workerStock.map(ws => ws.sku_name))]
+              ).map(s => <option key={s}>{s}</option>)}
             </select>
           </FormRow>
+          {returnForm.from_entity && returnForm.sku_name && (
+            <FormRow label="Color" required>
+              <select className="form-input" value={returnForm.color}
+                onChange={e => setReturnForm(p => ({ ...p, color: e.target.value }))}>
+                <option value="">Select Color...</option>
+                <option value="">No Color / Plain</option>
+                {[...new Set(workerStock
+                  .filter(ws => ws.worker_name === returnForm.from_entity && ws.sku_name === returnForm.sku_name)
+                  .map(ws => ws.color || ''))]
+                  .filter(c => c)
+                  .map((color, i) => <option key={i} value={color}>{color}</option>)
+                }
+              </select>
+            </FormRow>
+          )}
           <FormRow label="Quantity" required>
-            <input className="form-input" type="number" min="1" value={returnForm.quantity}
+            <input className="form-input"  value={returnForm.quantity}
               onChange={e => setReturnForm(p => ({ ...p, quantity: e.target.value }))} />
           </FormRow>
-          <FormRow label="Supplier Name">
-            <input className="form-input" placeholder="e.g. Raj Textiles" value={returnForm.supplier_name}
-              onChange={e => setReturnForm(p => ({ ...p, supplier_name: e.target.value }))} />
+          <FormRow label="Supplier Name" required>
+            <select className="form-input" value={returnForm.supplier_name}
+              onChange={e => setReturnForm(p => ({ ...p, supplier_name: e.target.value }))}>
+              <option value="">Select supplier...</option>
+              {suppliers.map(s => <option key={s.supplier_id} value={s.name}>{s.name}</option>)}
+            </select>
           </FormRow>
           <FormRow label="Reason / Notes">
             <input className="form-input" placeholder="e.g. Defective cloth" value={returnForm.notes}
@@ -254,7 +328,7 @@ function JobWork({ workers, workerStock, ledger, onRefresh }) {
               onWorkerAdded={(w) => { mergeWorker(w); setAssignForm(p => ({ ...p, worker_name: w.name })) }} />
           </div>
           <FormRow label="Quantity" required>
-            <input className="form-input" type="number" min="1" placeholder="e.g. 50" value={assignForm.quantity}
+            <input className="form-input" placeholder="e.g. 50" value={assignForm.quantity}
               onChange={e => setAssignForm(p => ({ ...p, quantity: e.target.value }))} />
           </FormRow>
           <FormRow label="Work Type">
