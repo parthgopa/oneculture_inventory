@@ -296,8 +296,8 @@ def get_orders():
         }))
         
         # Print first few assignments for debugging
-        for i, assignment in enumerate(assignments[:3]):
-            print(f"Assignment {i}: {assignment}")
+        # for i, assignment in enumerate(assignments[:3]):
+            # print(f"Assignment {i}: {assignment}")
         
         # Group assignments by order_id and item_id
         assignment_map = {}
@@ -817,13 +817,40 @@ def return_defective():
         if not from_entity or not sku_name or quantity <= 0 or not to_entity:
             return jsonify({'error': 'from_entity, sku_name, quantity, and to_entity are required'}), 400
 
-        # Check available quantity
+        # Check available quantity.
+        # First try current in-hand (for workers who still hold the items).
+        # If that is 0, fall back to checking final_received quantity minus
+        # already-returned-defective — covers items already delivered to company.
         available = get_entity_holding(from_entity, sku_name=sku_name, color=color)
         if available < quantity:
-            color_msg = f' ({color})' if color else ''
-            return jsonify({
-                'error': f'"{from_entity}" only has {available} pieces of "{sku_name}"{color_msg} available'
-            }), 400
+            # Build match filter for sku/color
+            color_filter = {'color': color} if color else {}
+            match_base = {'from_entity': from_entity, 'sku_name': sku_name, **color_filter}
+            if order_id:
+                match_base['order_id'] = order_id
+
+            def _sum(match):
+                res = list(work_ledger_collection.aggregate([
+                    {'$match': match},
+                    {'$group': {'_id': None, 'total': {'$sum': '$quantity'}}}
+                ]))
+                return res[0]['total'] if res else 0
+
+            delivered = _sum({**match_base, 'stage': 'final_received', 'to_entity': 'company'})
+            already_returned = _sum({**match_base, 'stage': 'returned_defective'})
+            available_from_delivered = delivered - already_returned
+
+            if available_from_delivered < quantity:
+                color_msg = f' ({color})' if color else ''
+                return jsonify({
+                    'error': (
+                        f'Only {available_from_delivered} pieces of "{sku_name}"{color_msg} '
+                        f'available for return '
+                        f'({delivered} delivered, {already_returned} already returned)'
+                    )
+                }), 400
+            # Use the delivered-based availability — no need to block
+            available = available_from_delivered
 
         created_at = datetime.now()
         if date_str:
@@ -1236,6 +1263,64 @@ def get_worker_stock():
         return jsonify({'error': str(e)}), 500
 
 
+@production_bp.route('/api/production/worker-delivered', methods=['GET'])
+def get_worker_delivered():
+    """
+    Items a worker has already delivered to company (stage: final_received, from_entity: worker).
+    Grouped by order_id, sku_name, color so the RF tab can mark them defective.
+    """
+    try:
+        worker_name = request.args.get('worker_name', '').strip()
+        if not worker_name:
+            return jsonify({'error': 'worker_name is required'}), 400
+
+        pipeline = [
+            {'$match': {
+                'from_entity': worker_name,
+                'to_entity': 'company',
+                'stage': 'final_received'
+            }},
+            {'$group': {
+                '_id': {
+                    'order_id': '$order_id',
+                    'sku_name': '$sku_name',
+                    'color': '$color'
+                },
+                'total_quantity': {'$sum': '$quantity'},
+                'item_id': {'$first': '$item_id'},
+                'latest_date': {'$max': '$created_at'}
+            }},
+            {'$sort': {'latest_date': -1}}
+        ]
+        rows = list(work_ledger_collection.aggregate(pipeline))
+
+        # Build chalan_number map from cloth_orders
+        order_ids = list({r['_id']['order_id'] for r in rows if r['_id'].get('order_id')})
+        chalan_map = {}
+        if order_ids:
+            orders = cloth_orders_collection.find(
+                {'order_id': {'$in': order_ids}},
+                {'order_id': 1, 'chalan_number': 1}
+            )
+            chalan_map = {o['order_id']: o.get('chalan_number', '') for o in orders}
+
+        result = []
+        for r in rows:
+            oid = r['_id']['order_id']
+            result.append({
+                'order_id': oid,
+                'chalan_number': chalan_map.get(oid, ''),
+                'sku_name': r['_id']['sku_name'],
+                'color': r['_id']['color'] or '',
+                'quantity': r['total_quantity'],
+                'item_id': r.get('item_id', ''),
+                'latest_date': r.get('latest_date', '').isoformat() if r.get('latest_date') else ''
+            })
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @production_bp.route('/api/production/ledger', methods=['GET'])
 def get_ledger():
     try:
@@ -1260,33 +1345,40 @@ def get_ledger():
 
 @production_bp.route('/api/production/ready-for-barcode', methods=['GET'])
 def get_ready_for_barcode():
-    """Items that have been final-received at company but barcodes not yet generated. Grouped by (sku_name, color)."""
+    """Items that have been final-received at company. Grouped by (order_id, sku_name, color) so same SKU in different chalans are separate."""
     try:
         pipeline = [
             {'$match': {'stage': 'final_received', 'to_entity': 'company'}},
             {'$group': {
-                '_id': {'sku_name': '$sku_name', 'color': '$color'},
+                '_id': {'order_id': '$order_id', 'sku_name': '$sku_name', 'color': '$color'},
                 'total_received': {'$sum': '$quantity'},
                 'mrp': {'$last': '$mrp'},
-                'order_id': {'$last': '$order_id'},
                 'last_received': {'$max': '$created_at'}
             }},
             {'$sort': {'last_received': -1}}
         ]
         items = list(work_ledger_collection.aggregate(pipeline))
+
+        # Lookup chalan_number for each order_id
+        order_ids = list({i['_id']['order_id'] for i in items if i['_id'].get('order_id')})
+        chalan_map = {}
+        if order_ids:
+            for o in cloth_orders_collection.find({'order_id': {'$in': order_ids}}, {'order_id': 1, 'chalan_number': 1}):
+                chalan_map[o['order_id']] = o.get('chalan_number', '')
+
         result = []
         for item in items:
+            oid = item['_id'].get('order_id') or ''
             entry = {
+                'order_id': oid,
+                'chalan_number': chalan_map.get(oid, ''),
                 'sku_name': item['_id']['sku_name'],
                 'color': item['_id'].get('color') or '',
                 'quantity': item['total_received'],
                 'mrp': item.get('mrp') or 0,
-                'order_id': item.get('order_id') or '',
                 'last_received': item['last_received'].isoformat() if item.get('last_received') else None
             }
-            print(f"[ready-for-barcode] {entry['sku_name']} ({entry['color']}): total_received={entry['quantity']}, mrp={entry['mrp']}, order_id={entry['order_id']}")
             result.append(entry)
-        print(f"[ready-for-barcode] Total items: {len(result)}")
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

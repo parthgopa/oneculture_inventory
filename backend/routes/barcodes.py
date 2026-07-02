@@ -14,21 +14,22 @@ from db import barcodes_collection, scan_events_collection
 barcodes_bp = Blueprint('barcodes', __name__)
 
 
-def generate_barcode_base64(barcode_id, compact=False):
+def generate_barcode_base64(barcode_id, compact=False, sticker=False):
     """
     Generate barcode image and return as base64 string.
     compact=True produces smaller images suitable for multi-column layouts.
+    sticker=True produces minimal quiet_zone for tight sticker layout.
     """
     EAN = barcode.get_barcode_class('code128')
     
     # Configure writer options for compact output
     writer_options = {
-        'module_width': 0.25 if compact else 0.4,  # Width of barcode bars
-        'module_height': 8 if compact else 15,      # Height of bars in mm
-        'quiet_zone': 2 if compact else 6.5,        # Whitespace on sides
-        'font_size': 8 if compact else 10,          # Text size
-        'text_distance': 3 if compact else 5,       # Distance between bars and text
-        'write_text': not compact,                  # Hide text in compact mode (we add it in HTML)
+        'module_width': 0.25 if compact else 0.4,
+        'module_height': 8 if compact else 15,
+        'quiet_zone': 1 if sticker else (2 if compact else 6.5),
+        'font_size': 7 if sticker else (8 if compact else 10),
+        'text_distance': 2 if sticker else (3 if compact else 5),
+        'write_text': not compact,
     }
     
     ean = EAN(barcode_id, writer=ImageWriter())
@@ -42,6 +43,7 @@ def generate_barcode_base64(barcode_id, compact=False):
 def create_barcode_batch():
     """Create a new batch of barcodes with optional product image"""
     data = request.json
+    # print("DATA:", data)
     company_name = data.get('company_name')
     sku_name = data.get('sku_name')
     mrp = data.get('mrp')
@@ -49,6 +51,7 @@ def create_barcode_batch():
     color = data.get('color', '')
     quantity = int(data.get('quantity', 1))
     product_image = data.get('product_image')  # Base64 image (optional)
+    order_id = data.get('order_id', '')  # Chalan/order scoping
 
     if not all([company_name, sku_name, mrp]):
         return jsonify({'error': 'Missing required fields'}), 400
@@ -82,6 +85,7 @@ def create_barcode_batch():
             'mrp': float(mrp),
             'size': size,
             'color': color,
+            'order_id': order_id,
             'batch_id': batch_id,
             'created_at': datetime.now()
         }
@@ -159,6 +163,7 @@ def get_all_batches():
                     'size': {'$first': '$size'},
                     'color': {'$first': '$color'},
                     'mrp': {'$first': '$mrp'},
+                    'order_id': {'$first': '$order_id'},
                     'created_at': {'$first': '$created_at'},
                     'quantity': {'$sum': 1}
                 }
@@ -223,7 +228,7 @@ def get_batch_details(batch_id):
             
             # Include base64 image if requested
             if include_images:
-                bc['image_base64'] = generate_barcode_base64(bc['barcode_id'])
+                bc['image_base64'] = generate_barcode_base64(bc['barcode_id'], sticker=True)
         
         return jsonify({
             'batch_id': batch_id,
