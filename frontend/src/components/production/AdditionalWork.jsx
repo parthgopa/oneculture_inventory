@@ -401,8 +401,8 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
                 <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type || 'Job Work'})</option>
               )}
             </select>
-            <QuickAddWorker defaultWorkType="Additional Work"
-              onWorkerAdded={(w) => { mergeWorker(w); setTransferForm(p => ({ ...p, to_worker: w.name, work_type: w.work_type })) }} />
+            {/* <QuickAddWorker defaultWorkType="Additional Work"
+              onWorkerAdded={(w) => { mergeWorker(w); setTransferForm(p => ({ ...p, to_worker: w.name, work_type: w.work_type })) }} /> */}
           </div>
           <FormRow label="Order ID" required>
             <select className="form-input" value={transferForm.order_id}

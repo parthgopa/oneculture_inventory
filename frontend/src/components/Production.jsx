@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { MdBuild, MdAssignment, MdSwapHoriz, MdPeople, MdRefresh, MdCheckCircle, MdInbox, MdQrCode2, MdStorefront, MdAssignmentReturn } from 'react-icons/md'
 import { apiFetch } from '../config'
 import ProductionOverview from './production/ProductionOverview'
@@ -14,7 +14,7 @@ import ReturnDefective from './production/ReturnDefective'
 import styles from './Production.module.css'
 
 const TABS = [
-  { id: 'overview',        label: 'Overview',         icon: MdBuild },
+  // { id: 'overview',        label: 'Overview',         icon: MdBuild },
   { id: 'orders',          label: 'Cloth Orders',     icon: MdAssignment },
   { id: 'workers',         label: 'Workers',          icon: MdPeople },
   { id: 'suppliers',       label: 'Suppliers',        icon: MdStorefront },
@@ -27,10 +27,19 @@ const TABS = [
 
 function Production() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState(() => {
+    const urlTab = searchParams.get('tab')
     const savedTab = localStorage.getItem('production-last-tab')
-    return searchParams.get('tab') || savedTab || 'orders'
+    return urlTab || savedTab || 'orders'
   })
+
+  // Once URL tab param is consumed, replace URL so refresh uses localStorage
+  useEffect(() => {
+    if (searchParams.get('tab')) {
+      navigate('/production', { replace: true })
+    }
+  }, [])
   const [loading, setLoading]     = useState(true)
   const [success, setSuccess]     = useState(null)
 

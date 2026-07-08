@@ -324,8 +324,8 @@ function JobWork({ workers, workerStock, ledger, orders, onRefresh }) {
               <option value="">Select Worker...</option>
               {localWorkers.map(w => <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type})</option>)}
             </select>
-            <QuickAddWorker defaultWorkType="Job Work"
-              onWorkerAdded={(w) => { mergeWorker(w); setAssignForm(p => ({ ...p, worker_name: w.name })) }} />
+            {/* <QuickAddWorker defaultWorkType="Job Work"
+              onWorkerAdded={(w) => { mergeWorker(w); setAssignForm(p => ({ ...p, worker_name: w.name })) }} /> */}
           </div>
           <FormRow label="Quantity" required>
             <input className="form-input" placeholder="e.g. 50" value={assignForm.quantity}

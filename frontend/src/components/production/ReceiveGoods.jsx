@@ -177,10 +177,15 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
                 <tr><th>#</th><th>SKU</th><th>From</th><th></th><th>To</th><th>Qty</th><th>Stage</th><th>Date</th><th></th></tr>
               </thead>
               <tbody>
-                {receiveLedger.map((e, i) => (
+                {receiveLedger.map((e, i) => {
+                  const chalanNum = orders.find(o => o.order_id === e.order_id)?.chalan_number || ''
+                  return (
                   <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
                     <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
                     <td>
+                      {chalanNum && (
+                        <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 11, marginRight: 5 }}>#{chalanNum}</span>
+                      )}
                       <strong>{e.sku_name}</strong>
                       {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
                     </td>
@@ -192,7 +197,8 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
                     <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
                     <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

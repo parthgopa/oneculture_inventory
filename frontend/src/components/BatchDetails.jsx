@@ -331,7 +331,7 @@ ${stickers}
     <div className={styles.container}>
       {/* Header */}
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/generator')}>
+        <button className={styles.backBtn} onClick={() => { localStorage.setItem('production-last-tab', 'generatebarcode'); navigate('/production') }}>
           <MdArrowBack size={20} /> Back
         </button>
         <div className={styles.headerInfo}>

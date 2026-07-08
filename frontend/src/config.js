@@ -1,6 +1,7 @@
 // Toggle between local and ngrok
-// export const API_BASE_URL = 'http://localhost:5000'
-export const API_BASE_URL = 'https://backend-inventory.oneculture.in'
+// export const API_BASE_URL = 'http://147.79.71.224:5000'
+export const API_BASE_URL = 'http://localhost:5000'
+// export const API_BASE_URL = 'https://backend-inventory.oneculture.in'
 // export const API_BASE_URL = 'https://inventory.oneculture.in/api'
 
 

@@ -81,6 +81,8 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [assignForm, setAssignForm] = useState({ order_id: '', item_id: '', sku_name: '', color: '', worker_name: '', quantity: '', work_type: 'Embroidery', notes: '', date: today })
   const [assignOrder, setAssignOrder] = useState(null) // full-order assign target
   const [localWorkers, setLocalWorkers] = useState(workers)
+  const [workerSearch, setWorkerSearch] = useState('')
+  const [workerInputFocused, setWorkerInputFocused] = useState(false)
 
   // Order Ledger
   const [orderLedger, setOrderLedger] = useState([])
@@ -223,6 +225,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const openAssign = (order, item) => {
     const totalQty = item.quantity_ordered || ''
     setAssignOrder(null)
+    setWorkerSearch('')
     setAssignForm({ order_id: order.order_id, item_id: item.item_id, sku_name: item.sku_name, color: item.color || '', worker_name: '', quantity: String(totalQty), work_type: 'Embroidery', notes: '', date: today })
     setLocalWorkers(workers)
     setModal('assign')
@@ -231,6 +234,7 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const openAssignOrder = (order) => {
     const totalQty = order.items.reduce((s, i) => s + (Number(i.quantity_ordered) || 0), 0)
     setAssignOrder(order)
+    setWorkerSearch('')
     setAssignForm({ order_id: order.order_id, item_id: '', sku_name: '', color: '', worker_name: '', quantity: String(totalQty), work_type: 'Embroidery', notes: '', date: today })
     setLocalWorkers(workers)
     setModal('assign')
@@ -673,16 +677,80 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
           {/* Worker */}
           <div className="form-group">
             <label className="form-label">Worker <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <select className="form-input" value={assignForm.worker_name}
-              onChange={e => {
-                const name = e.target.value
-                const wt = workerMap[name] || assignForm.work_type
-                setAssignForm(p => ({ ...p, worker_name: name, work_type: wt }))
-              }}>
-              <option value="">Select Worker...</option>
-              {localWorkers.map(w => <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type})</option>)}
-            </select>
-            <QuickAddWorker defaultWorkType="Job Work" onWorkerAdded={(w) => { mergeWorker(w); setAssignForm(p => ({ ...p, worker_name: w.name, work_type: w.work_type || p.work_type })) }} />
+            <div style={{ position: 'relative' }}>
+              <input
+                className="form-input"
+                placeholder="Type worker name to search..."
+                value={workerSearch}
+                onChange={e => {
+                  setWorkerSearch(e.target.value)
+                  // Clear selection if user edits text
+                  if (assignForm.worker_name && e.target.value !== assignForm.worker_name) {
+                    setAssignForm(p => ({ ...p, worker_name: '' }))
+                  }
+                }}
+                onFocus={() => setWorkerInputFocused(true)}
+                onBlur={() => setTimeout(() => setWorkerInputFocused(false), 150)}
+                style={{ marginBottom: 0 }}
+                autoComplete="off"
+              />
+              {/* Filtered suggestions list */}
+              {workerInputFocused && !assignForm.worker_name && (() => {
+                const filtered = localWorkers.filter(w =>
+                  w.name.toLowerCase().includes(workerSearch.toLowerCase())
+                )
+                if (filtered.length === 0) return (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                    background: 'white', border: '1px solid #e5e7eb', borderRadius: 6,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.12)', padding: '8px 12px',
+                    fontSize: 13, color: 'var(--text-secondary)'
+                  }}>
+                    No workers found
+                  </div>
+                )
+                return (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                    background: 'white', border: '1px solid #e5e7eb', borderRadius: 6,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.12)', maxHeight: 300, overflowY: 'auto'
+                  }}>
+                    {filtered.map(w => (
+                      <div
+                        key={w.worker_id}
+                        onClick={() => {
+                          setWorkerSearch(w.name)
+                          setAssignForm(p => ({ ...p, worker_name: w.name, work_type: workerMap[w.name] || p.work_type }))
+                        }}
+                        style={{
+                          padding: '9px 14px', cursor: 'pointer', fontSize: 13,
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          borderBottom: '1px solid #f3f4f6'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                      >
+                        <span style={{ fontWeight: 500 }}>{w.name}</span>
+                        <span style={{ fontSize: 11, color: '#6366f1', background: '#eef2ff', borderRadius: 4, padding: '2px 6px' }}>{w.work_type}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+              {/* Selected worker badge */}
+              {assignForm.worker_name && (
+                <div style={{
+                  marginTop: 6, padding: '6px 10px', background: '#f0fdf4',
+                  border: '1px solid #86efac', borderRadius: 6,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13
+                }}>
+                  <span>✓ <strong>{assignForm.worker_name}</strong> <span style={{ color: '#6366f1', fontSize: 11 }}>({workerMap[assignForm.worker_name]})</span></span>
+                  <button onClick={() => { setAssignForm(p => ({ ...p, worker_name: '' })); setWorkerSearch('') }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 16, lineHeight: 1 }}>✕</button>
+                </div>
+              )}
+            </div>
+            {/* <QuickAddWorker defaultWorkType="Job Work" onWorkerAdded={(w) => { mergeWorker(w); setWorkerSearch(w.name); setAssignForm(p => ({ ...p, worker_name: w.name, work_type: w.work_type || p.work_type })) }} /> */}
           </div>
 
           {/* Quantity — editable but pre-filled */}

@@ -134,7 +134,9 @@ def compute_all_worker_stock():
 @production_bp.route('/api/production/workers', methods=['GET'])
 def get_workers():
     try:
-        workers = list(workers_collection.find({'active': True}).sort('name', 1))
+        workers = list(workers_collection.find(
+            {'active': True, 'name': {'$nin': ['company', 'Company', 'COMPANY']}},
+        ).sort('name', 1))
         return jsonify([serialize(w) for w in workers]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1532,10 +1534,18 @@ def get_worker_history(worker_name):
     """
     Single $facet query returns everything about a worker:
     - All ledger activity (newest first)
-    - Current holdings (received - sent > 0) grouped by (sku, color)
-    - Completed SKUs  (received - sent == 0) grouped by (sku, color)
+    - Current holdings (received - sent > 0) grouped by (sku, color, order_id)
+    - Completed SKUs  (received - sent == 0) grouped by (sku, color, order_id)
+    - total_pieces_completed = pieces sent back to company (final delivery)
     """
     try:
+        if worker_name.lower() == 'company':
+            return jsonify({
+                'current_holdings': [], 'completed_skus': [],
+                'activity': [], 'total_pieces_ever': 0,
+                'total_pieces_current': 0, 'total_pieces_completed': 0
+            }), 200
+
         has_ledger = work_ledger_collection.count_documents({}, limit=1) > 0
         if not has_ledger:
             return jsonify({
@@ -1552,30 +1562,37 @@ def get_worker_history(worker_name):
                 ],
                 'received': [
                     {'$match': {'to_entity': worker_name}},
-                    {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'n': {'$sum': '$quantity'},
+                    {'$group': {'_id': {'sku': '$sku_name', 'color': '$color', 'order_id': '$order_id'},
+                                'n': {'$sum': '$quantity'},
                                 'last_date': {'$max': '$created_at'}}}
                 ],
                 'sent': [
                     {'$match': {'from_entity': worker_name}},
-                    {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'n': {'$sum': '$quantity'}}}
+                    {'$group': {'_id': {'sku': '$sku_name', 'color': '$color', 'order_id': '$order_id'},
+                                'n': {'$sum': '$quantity'}}}
+                ],
+                'sent_to_company': [
+                    {'$match': {'from_entity': worker_name, 'to_entity': 'company'}},
+                    {'$group': {'_id': None, 'n': {'$sum': '$quantity'}}}
                 ]
             }}
         ]))[0]
 
-        # Build maps with (sku, color) tuple keys
-        rcv_map  = {(r['_id']['sku'], r['_id'].get('color') or ''): {'n': r['n'], 'last_date': r.get('last_date')} for r in facet['received']}
-        snt_map  = {(s['_id']['sku'], s['_id'].get('color') or ''): s['n'] for s in facet['sent']}
+        # Build maps with (sku, color, order_id) tuple keys
+        rcv_map  = {(r['_id']['sku'], r['_id'].get('color') or '', r['_id'].get('order_id') or ''): {'n': r['n'], 'last_date': r.get('last_date')} for r in facet['received']}
+        snt_map  = {(s['_id']['sku'], s['_id'].get('color') or '', s['_id'].get('order_id') or ''): s['n'] for s in facet['sent']}
         all_keys = set(rcv_map) | set(snt_map)
 
         current_holdings, completed_skus = [], []
-        for (sku, color) in all_keys:
-            r = rcv_map.get((sku, color), {}).get('n', 0)
-            s = snt_map.get((sku, color), 0)
-            d = rcv_map.get((sku, color), {}).get('last_date')
+        for (sku, color, order_id) in all_keys:
+            r = rcv_map.get((sku, color, order_id), {}).get('n', 0)
+            s = snt_map.get((sku, color, order_id), 0)
+            d = rcv_map.get((sku, color, order_id), {}).get('last_date')
             holding = r - s
             entry = {
                 'sku_name': sku,
                 'color': color or '',
+                'order_id': order_id or '',
                 'total_received': r,
                 'total_sent': s,
                 'last_date': d.isoformat() if d else None
@@ -1599,13 +1616,15 @@ def get_worker_history(worker_name):
                 e['color'] = ''
             activity.append(e)
 
+        sent_to_company_total = facet['sent_to_company'][0]['n'] if facet.get('sent_to_company') else 0
+
         return jsonify({
-            'current_holdings':      current_holdings,
-            'completed_skus':        completed_skus,
-            'activity':              activity,
-            'total_pieces_ever':     sum(r.get('n', 0) for r in rcv_map.values()),
-            'total_pieces_current':  sum(h['quantity'] for h in current_holdings),
-            'total_pieces_completed': sum(c['total_sent'] for c in completed_skus)
+            'current_holdings':       current_holdings,
+            'completed_skus':         completed_skus,
+            'activity':               activity,
+            'total_pieces_ever':      sum(r.get('n', 0) for r in rcv_map.values()),
+            'total_pieces_current':   sum(h['quantity'] for h in current_holdings),
+            'total_pieces_completed': sent_to_company_total
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

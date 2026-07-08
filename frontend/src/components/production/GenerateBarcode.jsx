@@ -22,6 +22,7 @@ function GenerateBarcode({ readyItems = [] }) {
     color: '',
     mrp: '',
     quantity: 1,
+    order_id: '',
   })
 
   const [availableColors, setAvailableColors] = useState([])
@@ -125,6 +126,7 @@ function GenerateBarcode({ readyItems = [] }) {
       color: item.color || '',
       mrp: item.mrp ? String(item.mrp) : '',
       quantity: item.quantity || 1,
+      order_id: item.order_id || '',
     })
     setMessage(null)
     setGeneratedBatch(null)
@@ -221,12 +223,14 @@ function GenerateBarcode({ readyItems = [] }) {
           <div style={{ padding: '0 16px 16px' }}>
             {readyItems.map((item, i) => {
               const skuImage = skuCatalogImages[item.sku_name]
-              // Calculate barcodes generated for this SKU+color
+              // Calculate barcodes generated for this order+SKU+color.
+              // - New batches (have order_id): match only same order_id + sku + color
+              // - Old batches (no order_id): only count them if this item also has no order_id
               const matchingBatches = batchHistory.filter(b =>
                 b.sku_name === item.sku_name &&
-                (!item.color || b.color === item.color)
+                (!item.color || b.color === item.color) &&
+                (b.order_id ? b.order_id === item.order_id : !item.order_id)
               )
-              // API returns 'quantity' (count of barcodes in group), not 'total_barcodes'
               const generatedForSku = matchingBatches.reduce((sum, b) => sum + (b.quantity || b.total_barcodes || 0), 0)
               
               // Find dead stock for this SKU+color
@@ -282,8 +286,11 @@ function GenerateBarcode({ readyItems = [] }) {
                       {item.size && <span style={{ fontWeight: 400, color: '#6b7280' }}> · {item.size}</span>}
                       {item.color && <span style={{ fontWeight: 400, color: '#6b7280' }}> · {item.color}</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: '#6b7280' }}>
-                      Total: {item.quantity} | Generated: {generatedForSku} | Dead Stock: {deadQuantity} | Remaining: {remaining}
+                    <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {item.chalan_number && (
+                        <span style={{ color: '#dc2626', fontWeight: 700 }}>#{item.chalan_number}</span>
+                      )}
+                      <span>Total: {item.quantity} | Generated: {generatedForSku} | Dead: {deadQuantity} | Remaining: {remaining}</span>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -520,10 +527,20 @@ function GenerateBarcode({ readyItems = [] }) {
                 </tr>
               </thead>
               <tbody>
-                {batchHistory.map((batch) => (
+                {(() => {
+                  const chalanByOrder = {}
+                  readyItems.forEach(item => { if (item.order_id && item.chalan_number) chalanByOrder[item.order_id] = item.chalan_number })
+                  return batchHistory.map((batch) => {
+                    const chalan = batch.order_id ? chalanByOrder[batch.order_id] : null
+                    return (
                   <tr key={batch.batch_id}>
                     <td><code>{batch.batch_id}</code></td>
-                    <td><strong>{batch.sku_name}</strong></td>
+                    <td>
+                      <strong>{batch.sku_name}</strong>
+                      {chalan && (
+                        <span style={{ color: '#dc2626', fontWeight: 700, marginLeft: 6, fontSize: 15 }}>#{chalan}</span>
+                      )}
+                    </td>
                     <td>
                       {batch.size && <span className="badge" style={{background: '#e0e7ff', color: '#4338ca', marginRight: 4}}>{batch.size}</span>}
                       {batch.color && <span className="badge" style={{background: '#fce7f3', color: '#be185d'}}>{batch.color}</span>}
@@ -541,7 +558,9 @@ function GenerateBarcode({ readyItems = [] }) {
                       </button>
                     </td>
                   </tr>
-                ))}
+                    )
+                  })
+                })()}
               </tbody>
             </table>
           </div>

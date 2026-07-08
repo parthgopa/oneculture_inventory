@@ -13,6 +13,7 @@ function ReturnDefective({ workers, workerStock, onRefresh }) {
   const [suppliers, setSuppliers] = useState([])
   const [selectedWorker, setSelectedWorker] = useState('')
   const [workerHoldings, setWorkerHoldings] = useState([])
+  const [loadingDelivered, setLoadingDelivered] = useState(false)
   const [deadStockHistory, setDeadStockHistory] = useState([])
   const [filteredDeadStock, setFilteredDeadStock] = useState([])
   const [loadingDeadStock, setLoadingDeadStock] = useState(false)
@@ -72,18 +73,19 @@ function ReturnDefective({ workers, workerStock, onRefresh }) {
     fetchDeadStockHistory()
   }, [])
 
-  // Fetch worker holdings when worker is selected
+  // Fetch items worker has DELIVERED to company (final_received) when worker is selected
   useEffect(() => {
     if (selectedWorker) {
-      const holdings = workerStock.filter(ws => 
-        ws.worker_name === selectedWorker && 
-        ws.quantity > 0
-      )
-      setWorkerHoldings(holdings)
+      setLoadingDelivered(true)
+      apiFetch(`/api/production/worker-delivered?worker_name=${encodeURIComponent(selectedWorker)}`)
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setWorkerHoldings(data) })
+        .catch(() => setWorkerHoldings([]))
+        .finally(() => setLoadingDelivered(false))
     } else {
       setWorkerHoldings([])
     }
-  }, [selectedWorker, workerStock])
+  }, [selectedWorker])
 
   const mergeWorker = (w) => setLocalWorkers(prev => prev.find(p => p.worker_id === w.worker_id) ? prev : [...prev, w])
 
@@ -191,23 +193,31 @@ function ReturnDefective({ workers, workerStock, onRefresh }) {
               <option key={w.worker_id} value={w.name}>{w.name}</option>
             ))}
           </select>
-          <QuickAddWorker 
+          {/* <QuickAddWorker 
             defaultWorkType="Job Work"
             onWorkerAdded={(w) => { 
               mergeWorker(w); 
               setSelectedWorker(w.name) 
             }} 
-          />
+          /> */}
         </div>
       </div>
 
-      {/* Worker Holdings */}
-      {selectedWorker && workerHoldings.length > 0 && (
+      {/* Worker Delivered Items */}
+      {selectedWorker && loadingDelivered && (
+        <div className="card" style={{ textAlign: 'center', padding: 24 }}>
+          <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Loading delivered items...</p>
+        </div>
+      )}
+      {selectedWorker && !loadingDelivered && workerHoldings.length > 0 && (
         <div className="card">
           <div style={{ marginBottom: 16 }}>
             <h3 style={{ margin: 0, fontSize: 16 }}>
-              Current Holdings - {selectedWorker}
+              Items Delivered to Company — {selectedWorker}
             </h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+              Items this worker has already returned to company. Select one to mark as defective / dead stock.
+            </p>
           </div>
           <div className="table-container">
             <table className="table">
@@ -223,7 +233,14 @@ function ReturnDefective({ workers, workerStock, onRefresh }) {
               <tbody>
                 {workerHoldings.map((holding, idx) => (
                   <tr key={idx}>
-                    <td>{holding.order_id || '—'}</td>
+                    <td>
+                      <span>{holding.order_id || '—'}</span>
+                      {holding.chalan_number && (
+                        <span style={{ color: '#dc2626', fontWeight: 700, marginLeft: 6 }}>
+                          # ({holding.chalan_number})
+                        </span>
+                      )}
+                    </td>
                     <td><strong>{holding.sku_name}</strong></td>
                     <td>{holding.color || '—'}</td>
                     <td><span className="badge badge-primary">{holding.quantity}</span></td>
@@ -244,11 +261,11 @@ function ReturnDefective({ workers, workerStock, onRefresh }) {
         </div>
       )}
 
-      {selectedWorker && workerHoldings.length === 0 && (
+      {selectedWorker && !loadingDelivered && workerHoldings.length === 0 && (
         <div className="card" style={{ textAlign: 'center', padding: 32 }}>
           <MdPeople size={48} style={{ color: 'var(--text-secondary)', marginBottom: 16 }} />
           <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-            No current holdings found for {selectedWorker}
+            No items delivered to company yet for {selectedWorker}
           </p>
         </div>
       )}
@@ -491,7 +508,7 @@ function ReturnDefective({ workers, workerStock, onRefresh }) {
             </FormRow>
           )}
 
-          <FormRow label="Available Quantity">
+          <FormRow label="Total Delivered (max returnable)">
             <input 
               className="form-input" 
               value={getAvailableQuantity(returnForm.sku_name, returnForm.color)} 
