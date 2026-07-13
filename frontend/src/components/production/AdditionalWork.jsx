@@ -130,7 +130,7 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
   })
 
   const additionalLedger = ledger.filter(e =>
-    ['transferred', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage) &&
+    ['job_assigned', 'transferred', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage) &&
     (additionalWorkerNames.has(e.from_entity) || additionalWorkerNames.has(e.to_entity))
   )
 

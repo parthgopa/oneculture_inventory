@@ -78,9 +78,19 @@ def get_entity_holding(entity, sku_name=None, order_id=None, item_id=None, color
 
 
 def compute_all_worker_stock():
-    """Compute current holding per (worker, sku, color, order_id) - excludes 'company' and supplier entities"""
+    """Compute current holding per (worker, sku, color, order_id) - excludes 'company' and all supplier entities"""
     if work_ledger_collection.count_documents({}) == 0:
         return []
+
+    # Build a set of all known supplier names so we can exclude them from worker holdings
+    supplier_names = set(
+        s['supplier_name'] for s in suppliers_collection.find({}, {'supplier_name': 1})
+        if s.get('supplier_name')
+    )
+    # Also collect supplier names from cloth orders (covers historical/renamed suppliers)
+    for o in cloth_orders_collection.find({}, {'supplier_name': 1}):
+        if o.get('supplier_name'):
+            supplier_names.add(o['supplier_name'])
 
     pipeline = [
         {'$facet': {
@@ -101,9 +111,9 @@ def compute_all_worker_stock():
     # Get all unique order_ids to fetch chalan numbers
     all_order_ids = set()
     for key in list(received_map.keys()) + list(sent_map.keys()):
-        if key[3]:  # order_id is at index 3
+        if key[3]:
             all_order_ids.add(key[3])
-    
+
     # Fetch chalan numbers for all orders
     chalan_map = {}
     if all_order_ids:
@@ -113,15 +123,19 @@ def compute_all_worker_stock():
     all_keys = set(list(received_map.keys()) + list(sent_map.keys()))
     holdings = []
     for (entity, sku, color, order_id) in all_keys:
-        if not entity or entity.lower() in ('company',) or entity.lower().startswith('supplier'):
+        if not entity:
+            continue
+        if entity == 'company':  # only exclude the system entity (exact lowercase)
+            continue
+        if entity in supplier_names or entity.lower().startswith('supplier'):
             continue
         holding = received_map.get((entity, sku, color, order_id), 0) - sent_map.get((entity, sku, color, order_id), 0)
         if holding > 0:
             holdings.append({
-                'worker_name': entity, 
-                'sku_name': sku, 
-                'color': color or '', 
-                'order_id': order_id or '', 
+                'worker_name': entity,
+                'sku_name': sku,
+                'color': color or '',
+                'order_id': order_id or '',
                 'quantity': holding,
                 'chalan_number': chalan_map.get(order_id, '')
             })
@@ -135,7 +149,7 @@ def compute_all_worker_stock():
 def get_workers():
     try:
         workers = list(workers_collection.find(
-            {'active': True, 'name': {'$nin': ['company', 'Company', 'COMPANY']}},
+            {'active': True},
         ).sort('name', 1))
         return jsonify([serialize(w) for w in workers]), 200
     except Exception as e:
@@ -1539,13 +1553,6 @@ def get_worker_history(worker_name):
     - total_pieces_completed = pieces sent back to company (final delivery)
     """
     try:
-        if worker_name.lower() == 'company':
-            return jsonify({
-                'current_holdings': [], 'completed_skus': [],
-                'activity': [], 'total_pieces_ever': 0,
-                'total_pieces_current': 0, 'total_pieces_completed': 0
-            }), 200
-
         has_ledger = work_ledger_collection.count_documents({}, limit=1) > 0
         if not has_ledger:
             return jsonify({
@@ -1583,6 +1590,13 @@ def get_worker_history(worker_name):
         snt_map  = {(s['_id']['sku'], s['_id'].get('color') or '', s['_id'].get('order_id') or ''): s['n'] for s in facet['sent']}
         all_keys = set(rcv_map) | set(snt_map)
 
+        # Fetch chalan numbers for all relevant order_ids
+        all_order_ids = [oid for (_, _, oid) in all_keys if oid]
+        chalan_map = {}
+        if all_order_ids:
+            for o in cloth_orders_collection.find({'order_id': {'$in': all_order_ids}}, {'order_id': 1, 'chalan_number': 1}):
+                chalan_map[o['order_id']] = o.get('chalan_number', '')
+
         current_holdings, completed_skus = [], []
         for (sku, color, order_id) in all_keys:
             r = rcv_map.get((sku, color, order_id), {}).get('n', 0)
@@ -1593,6 +1607,7 @@ def get_worker_history(worker_name):
                 'sku_name': sku,
                 'color': color or '',
                 'order_id': order_id or '',
+                'chalan_number': chalan_map.get(order_id, ''),
                 'total_received': r,
                 'total_sent': s,
                 'last_date': d.isoformat() if d else None

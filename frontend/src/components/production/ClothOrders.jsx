@@ -16,8 +16,8 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
   const [supplierNames, setSupplierNames] = useState([])
   const [supplierMap, setSupplierMap] = useState({}) // name → company_name
   const [nextChalanNumber, setNextChalanNumber] = useState(1)
-  const [sortOrder, setSortOrder] = useState('chalan_desc') // 'last_added' | 'chalan_asc' | 'chalan_desc'
-  const [chalanFilter, setChalanFilter] = useState('')
+  const [sortOrder, setSortOrder] = useState(() => localStorage.getItem('clothorders-sort') || 'chalan_desc')
+  const [chalanFilter, setChalanFilter] = useState(() => localStorage.getItem('clothorders-filter') || '')
 
   useEffect(() => {
     apiFetch('/api/production/suppliers').then(r => r.json()).then(d => {
@@ -317,16 +317,22 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
           <MdAdd size={18} /> New Cloth Order
         </button>
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
+          {chalanFilter && (
+            <button className="btn btn-outline" style={{ fontSize: 12, padding: '4px 10px', borderColor: '#ef4444', color: '#ef4444' }}
+              onClick={() => { setChalanFilter(''); localStorage.setItem('clothorders-filter', '') }}>
+              <MdClose size={14} /> Clear Filter
+            </button>
+          )}
           <input
             className="form-input"
             style={{ width: 140, fontSize: 13 }}
             placeholder="Filter by Chalan #"
             value={chalanFilter}
-            onChange={e => setChalanFilter(e.target.value)}
+            onChange={e => { setChalanFilter(e.target.value); localStorage.setItem('clothorders-filter', e.target.value) }}
             type="number"
             min="1"
           />
-          <select className="form-input" style={{ width: 160, fontSize: 13 }} value={sortOrder} onChange={e => setSortOrder(e.target.value)}>
+          <select className="form-input" style={{ width: 160, fontSize: 13 }} value={sortOrder} onChange={e => { setSortOrder(e.target.value); localStorage.setItem('clothorders-sort', e.target.value) }}>
             <option value="last_added">Sort: Last Added</option>
             <option value="chalan_asc">Sort: Chalan ↑</option>
             <option value="chalan_desc">Sort: Chalan ↓</option>

@@ -8,6 +8,7 @@ import JobWork from './production/JobWork'
 import AdditionalWork from './production/AdditionalWork'
 import ReceiveGoods from './production/ReceiveGoods'
 import WorkersTab from './production/WorkersTab'
+import WorkerDetail from './production/WorkerDetail'
 import SuppliersTab from './production/SuppliersTab'
 import GenerateBarcode from './production/GenerateBarcode'
 import ReturnDefective from './production/ReturnDefective'
@@ -43,6 +44,7 @@ function Production() {
   const [loading, setLoading]     = useState(true)
   const [success, setSuccess]     = useState(null)
 
+  const [selectedWorker, setSelectedWorker] = useState(null)
   const [stats, setStats]             = useState(null)
   const [orders, setOrders]           = useState([])
   const [workers, setWorkers]         = useState([])
@@ -121,7 +123,7 @@ function Production() {
         {TABS.map(({ id, label, icon: Icon }) => (
           <button key={id}
             className={`${styles.tabBtn} ${activeTab === id ? styles.active : ''}`}
-            onClick={() => setActiveTab(id)}>
+            onClick={() => { setActiveTab(id); if (id !== 'workers') setSelectedWorker(null) }}>
             <Icon size={17} />{label}
           </button>
         ))}
@@ -134,7 +136,9 @@ function Production() {
         <ClothOrders orders={orders} workers={workers} workerStock={workerStock} onRefresh={onRefresh} />
       )}
       {activeTab === 'workers' && (
-        <WorkersTab workers={workers} workerStock={workerStock} onRefresh={onRefresh} />
+        selectedWorker
+          ? <WorkerDetail worker={selectedWorker} onBack={() => setSelectedWorker(null)} />
+          : <WorkersTab workers={workers} workerStock={workerStock} onRefresh={onRefresh} onViewWorker={w => setSelectedWorker(w)} />
       )}
       {activeTab === 'suppliers' && (
         <SuppliersTab suppliers={suppliers} onRefresh={onRefresh} />
