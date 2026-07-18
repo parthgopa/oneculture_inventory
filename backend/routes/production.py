@@ -636,7 +636,7 @@ def transfer_work():
         if from_worker == to_worker:
             return jsonify({'error': 'Cannot transfer to the same worker'}), 400
 
-        available = get_entity_holding(from_worker, sku_name=sku_name, color=color)
+        available = get_entity_holding(from_worker, sku_name=sku_name, color=color, order_id=order_id or None)
         if available < quantity:
             color_msg = f' ({color})' if color else ''
             return jsonify({
@@ -689,7 +689,7 @@ def receive_final():
         if not worker_name or not sku_name or quantity <= 0:
             return jsonify({'error': 'Worker, SKU, and quantity are required'}), 400
 
-        available = get_entity_holding(worker_name, sku_name=sku_name, color=color)
+        available = get_entity_holding(worker_name, sku_name=sku_name, color=color, order_id=order_id or None)
         if available < quantity:
             color_msg = f' ({color})' if color else ''
             return jsonify({
@@ -778,7 +778,7 @@ def return_to_supplier():
         if not from_entity or not sku_name or quantity <= 0:
             return jsonify({'error': 'from_entity, sku_name, and quantity are required'}), 400
 
-        available = get_entity_holding(from_entity, sku_name=sku_name, color=color)
+        available = get_entity_holding(from_entity, sku_name=sku_name, color=color, order_id=order_id or None)
         if available < quantity:
             color_msg = f' ({color})' if color else ''
             return jsonify({
@@ -833,11 +833,7 @@ def return_defective():
         if not from_entity or not sku_name or quantity <= 0 or not to_entity:
             return jsonify({'error': 'from_entity, sku_name, quantity, and to_entity are required'}), 400
 
-        # Check available quantity.
-        # First try current in-hand (for workers who still hold the items).
-        # If that is 0, fall back to checking final_received quantity minus
-        # already-returned-defective — covers items already delivered to company.
-        available = get_entity_holding(from_entity, sku_name=sku_name, color=color)
+        available = get_entity_holding(from_entity, sku_name=sku_name, color=color, order_id=order_id or None)
         if available < quantity:
             # Build match filter for sku/color
             color_filter = {'color': color} if color else {}
@@ -1022,28 +1018,55 @@ def receive_final_bulk():
             except Exception:
                 pass
 
-        # Get all holdings for this worker and order
+        print(f"[BULK RECEIVE] Started for worker: '{worker_name}', order_id: '{order_id}'")
+
+        # Get all holdings (net current holdings) for this worker and order
         holdings = list(work_ledger_collection.aggregate([
             {'$match': {
-                'to_entity': worker_name,
                 'order_id': order_id,
-                'stage': {'$nin': ['final_received', 'returned_to_supplier', 'returned_defective']}
+                '$or': [
+                    {'to_entity': worker_name},
+                    {'from_entity': worker_name}
+                ]
             }},
             {'$group': {
                 '_id': {'sku_name': '$sku_name', 'color': '$color'},
-                'total_quantity': {'$sum': '$quantity'},
+                'inflow': {
+                    '$sum': {
+                        '$cond': [{'$eq': ['$to_entity', worker_name]}, '$quantity', 0]
+                    }
+                },
+                'outflow': {
+                    '$sum': {
+                        '$cond': [{'$eq': ['$from_entity', worker_name]}, '$quantity', 0]
+                    }
+                },
                 'order_id': {'$first': '$order_id'},
                 'item_id': {'$first': '$item_id'}
-            }}
+            }},
+            {'$project': {
+                'sku_name': '$_id.sku_name',
+                'color': '$_id.color',
+                'total_quantity': {'$subtract': ['$inflow', '$outflow']},
+                'order_id': 1,
+                'item_id': 1
+            }},
+            {'$match': {'total_quantity': {'$gt': 0}}}
         ]))
+
+        print(f"[BULK RECEIVE] Aggregated holdings found: {len(holdings)}")
+        for h in holdings:
+            print(f"  - SKU: {h['sku_name']}, Color: {h['color']}, Net Quantity: {h['total_quantity']}")
 
         if not holdings:
             return jsonify({'error': f'No holdings found for worker {worker_name} in order {order_id}'}), 400
 
-        # Get order details for MRP
+        # Get order details for MRP and chalan_number
         order = cloth_orders_collection.find_one({'order_id': order_id})
         if not order:
             return jsonify({'error': f'Order {order_id} not found'}), 404
+
+        chalan_number = order.get('chalan_number')
 
         # Create MRP map from order items
         mrp_map = {}
@@ -1057,12 +1080,13 @@ def receive_final_bulk():
 
         # Process each holding
         for holding in holdings:
-            sku_name = holding['_id']['sku_name']
-            color = holding['_id']['color']
+            sku_name = holding['sku_name']
+            color = holding['color']
             item_id = holding.get('item_id', '')
 
-            # Get available quantity (current holdings)
-            available = get_entity_holding(worker_name, sku_name=sku_name, color=color)
+            # Get available quantity (current holdings specifically for this order)
+            available = get_entity_holding(worker_name, sku_name=sku_name, color=color, order_id=order_id)
+            print(f"[BULK RECEIVE] Checking SKU '{sku_name}' ({color}): available = {available}")
             if available <= 0:
                 errors.append(f"No available quantity for {sku_name} ({color}): available {available}")
                 continue
@@ -1074,12 +1098,28 @@ def receive_final_bulk():
             mrp_key = f"{sku_name}|{color}"
             mrp = mrp_map.get(mrp_key, 0)
 
+            # Find the rate for this assignment from the most recent assignment/transfer
+            last_assignment = work_ledger_collection.find_one({
+                'to_entity': worker_name,
+                'sku_name': sku_name,
+                'color': color,
+                'stage': {'$in': ['job_assigned', 'work_transfer']}
+            }, sort=[('created_at', -1)])
+            
+            rate = 0.0
+            if last_assignment and last_assignment.get('rate') is not None:
+                rate = last_assignment['rate']
+            else:
+                worker = workers_collection.find_one({'name': worker_name, 'active': True})
+                rate = worker.get('default_rate', 0.0) if worker else 0.0
+
             # Create ledger entry
             ledger_entry = {
                 'ledger_id': generate_id('L'),
                 'ledger_number_int': get_next_ledger_number(),
                 'order_id': order_id,
                 'item_id': item_id,
+                'chalan_number': chalan_number,
                 'sku_name': sku_name,
                 'color': color,
                 'from_entity': worker_name,
@@ -1088,6 +1128,7 @@ def receive_final_bulk():
                 'stage': 'final_received',
                 'work_type': 'Final Receive',
                 'mrp': mrp,
+                'rate': rate,
                 'notes': notes or f'Bulk receive all items from order {order_id}',
                 'created_at': created_at
             }
@@ -1099,6 +1140,40 @@ def receive_final_bulk():
                 'quantity': quantity,
                 'mrp': mrp
             })
+
+            # Check if this item is fully completed
+            if item_id:
+                total_received_agg = list(work_ledger_collection.aggregate([
+                    {'$match': {
+                        'order_id': order_id,
+                        'item_id': item_id,
+                        'stage': 'final_received',
+                        'to_entity': 'company'
+                    }},
+                    {'$group': {'_id': None, 'total': {'$sum': '$quantity'}}}
+                ]))
+                total_received = total_received_agg[0]['total'] if total_received_agg else 0
+                
+                # Get the order item quantity
+                order_item = next((i for i in order.get('items', []) if i.get('item_id') == item_id), None)
+                if order_item and total_received >= order_item.get('quantity_ordered', 0):
+                    cloth_orders_collection.update_one(
+                        {'order_id': order_id, 'items.item_id': item_id},
+                        {'$set': {'items.$.status': 'completed'}}
+                    )
+
+        # Update order-level status if all items are completed
+        updated_order = cloth_orders_collection.find_one({'order_id': order_id})
+        if updated_order:
+            all_completed = all(
+                item.get('status') == 'completed'
+                for item in updated_order.get('items', [])
+            )
+            if all_completed:
+                cloth_orders_collection.update_one(
+                    {'order_id': order_id},
+                    {'$set': {'status': 'completed'}}
+                )
 
         if errors:
             return jsonify({
@@ -1143,19 +1218,38 @@ def transfer_bulk():
             except Exception:
                 pass
 
-        # Get all holdings for this worker and order
+        # Get all holdings (net current holdings) for this worker and order
         holdings = list(work_ledger_collection.aggregate([
             {'$match': {
-                'to_entity': from_worker,
                 'order_id': order_id,
-                'stage': {'$nin': ['final_received', 'returned_to_supplier', 'returned_defective', 'transferred']}
+                '$or': [
+                    {'to_entity': from_worker},
+                    {'from_entity': from_worker}
+                ]
             }},
             {'$group': {
                 '_id': {'sku_name': '$sku_name', 'color': '$color'},
-                'total_quantity': {'$sum': '$quantity'},
+                'inflow': {
+                    '$sum': {
+                        '$cond': [{'$eq': ['$to_entity', from_worker]}, '$quantity', 0]
+                    }
+                },
+                'outflow': {
+                    '$sum': {
+                        '$cond': [{'$eq': ['$from_entity', from_worker]}, '$quantity', 0]
+                    }
+                },
                 'order_id': {'$first': '$order_id'},
                 'item_id': {'$first': '$item_id'}
-            }}
+            }},
+            {'$project': {
+                'sku_name': '$_id.sku_name',
+                'color': '$_id.color',
+                'total_quantity': {'$subtract': ['$inflow', '$outflow']},
+                'order_id': 1,
+                'item_id': 1
+            }},
+            {'$match': {'total_quantity': {'$gt': 0}}}
         ]))
 
         if not holdings:
@@ -1166,12 +1260,12 @@ def transfer_bulk():
 
         # Process each holding
         for holding in holdings:
-            sku_name = holding['_id']['sku_name']
-            color = holding['_id']['color']
+            sku_name = holding['sku_name']
+            color = holding['color']
             item_id = holding.get('item_id', '')
 
-            # Get available quantity (current holdings)
-            available = get_entity_holding(from_worker, sku_name=sku_name, color=color)
+            # Get available quantity (current holdings specifically for this order)
+            available = get_entity_holding(from_worker, sku_name=sku_name, color=color, order_id=order_id)
             if available <= 0:
                 errors.append(f"No available quantity for {sku_name} ({color}): available {available}")
                 continue
