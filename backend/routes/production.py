@@ -1500,14 +1500,17 @@ def get_mrp_for_sku():
     try:
         sku_name = request.args.get('sku_name', '').strip()
         color = request.args.get('color', '').strip()
+        order_id = request.args.get('order_id', '').strip()
 
         if not sku_name:
             return jsonify({'error': 'sku_name is required'}), 400
 
-        # Find the most recent cloth order item with this SKU and color
+        # Find the cloth order item with this SKU and color (filtered by order_id if provided)
         query = {'items.sku_name': sku_name}
         if color:
             query['items.color'] = color
+        if order_id:
+            query['order_id'] = order_id
 
         order = cloth_orders_collection.find_one(
             query,

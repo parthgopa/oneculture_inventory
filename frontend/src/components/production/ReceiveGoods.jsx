@@ -18,20 +18,20 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
   // Fetch MRP when SKU and Color are selected
   useEffect(() => {
     if (!receiveForm.sku_name) return
-    apiFetch(`/api/production/mrp?sku_name=${encodeURIComponent(receiveForm.sku_name)}&color=${encodeURIComponent(receiveForm.color || '')}`)
+    apiFetch(`/api/production/mrp?sku_name=${encodeURIComponent(receiveForm.sku_name)}&color=${encodeURIComponent(receiveForm.color || '')}&order_id=${encodeURIComponent(receiveForm.order_id || '')}`)
       .then(r => r.json())
       .then(data => {
         if (data.found && data.mrp > 0) {
           setReceiveForm(p => ({
             ...p,
             mrp: data.mrp,
-            order_id: data.order_id || '',
+            order_id: p.order_id || data.order_id || '',
             item_id: data.item_id || ''
           }))
         }
       })
       .catch(() => { })
-  }, [receiveForm.sku_name, receiveForm.color])
+  }, [receiveForm.sku_name, receiveForm.color, receiveForm.order_id])
 
   const close = () => { setModal(false); setError(null); setBulkReceive(false) }
 
@@ -180,23 +180,23 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
                 {receiveLedger.map((e, i) => {
                   const chalanNum = orders.find(o => o.order_id === e.order_id)?.chalan_number || ''
                   return (
-                  <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
-                    <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
-                    <td>
-                      {chalanNum && (
-                        <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 11, marginRight: 5 }}>#{chalanNum}</span>
-                      )}
-                      <strong>{e.sku_name}</strong>
-                      {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{e.from_entity}</td>
-                    <td><MdArrowForward size={14} /></td>
-                    <td style={{ fontWeight: 600, fontSize: 12 }}>{e.to_entity}</td>
-                    <td><span className="badge badge-primary">{e.quantity}</span></td>
-                    <td><Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} /></td>
-                    <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
-                    <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
-                  </tr>
+                    <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
+                      <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
+                      <td>
+                        {chalanNum && (
+                          <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 11, marginRight: 5 }}>#{chalanNum}</span>
+                        )}
+                        <strong>{e.sku_name}</strong>
+                        {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{e.from_entity}</td>
+                      <td><MdArrowForward size={14} /></td>
+                      <td style={{ fontWeight: 600, fontSize: 12 }}>{e.to_entity}</td>
+                      <td><span className="badge badge-primary">{e.quantity}</span></td>
+                      <td><Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} /></td>
+                      <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
+                      <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
+                    </tr>
                   )
                 })}
               </tbody>
