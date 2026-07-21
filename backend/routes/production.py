@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import random
 import string
-from db import cloth_orders_collection, work_ledger_collection, workers_collection, suppliers_collection, dead_stock_collection
+from db import cloth_orders_collection, work_ledger_collection, workers_collection, suppliers_collection, dead_stock_collection, barcodes_collection
 
 production_bp = Blueprint('production', __name__)
 
@@ -631,6 +631,14 @@ def transfer_work():
         order_id = (data.get('order_id') or '').strip()
         item_id = (data.get('item_id') or '').strip()
 
+        # Auto-resolve item_id if missing but order_id is provided
+        if not item_id and order_id and sku_name:
+            order = cloth_orders_collection.find_one({'order_id': order_id})
+            if order:
+                item = next((i for i in order.get('items', []) if i.get('sku_name') == sku_name and (not color or i.get('color') == color)), None)
+                if item:
+                    item_id = item.get('item_id', '')
+
         if not from_worker or not to_worker or not sku_name or quantity <= 0:
             return jsonify({'error': 'From worker, to worker, SKU, and quantity are required'}), 400
         if from_worker == to_worker:
@@ -683,6 +691,14 @@ def receive_final():
         quantity = int(data.get('quantity') or 0)
         order_id = (data.get('order_id') or '').strip()
         item_id = (data.get('item_id') or '').strip()
+
+        # Auto-resolve item_id if missing but order_id is provided
+        if not item_id and order_id and sku_name:
+            order = cloth_orders_collection.find_one({'order_id': order_id})
+            if order:
+                item = next((i for i in order.get('items', []) if i.get('sku_name') == sku_name and (not color or i.get('color') == color)), None)
+                if item:
+                    item_id = item.get('item_id', '')
         notes = (data.get('notes') or '').strip()
         mrp = float(data.get('mrp') or 0)
 
@@ -1084,6 +1100,12 @@ def receive_final_bulk():
             color = holding['color']
             item_id = holding.get('item_id', '')
 
+            # Auto-resolve item_id if missing
+            if not item_id and order and order.get('items'):
+                order_item = next((i for i in order['items'] if i.get('sku_name') == sku_name and (not color or i.get('color') == color)), None)
+                if order_item:
+                    item_id = order_item.get('item_id', '')
+
             # Get available quantity (current holdings specifically for this order)
             available = get_entity_holding(worker_name, sku_name=sku_name, color=color, order_id=order_id)
             print(f"[BULK RECEIVE] Checking SKU '{sku_name}' ({color}): available = {available}")
@@ -1263,6 +1285,14 @@ def transfer_bulk():
             sku_name = holding['sku_name']
             color = holding['color']
             item_id = holding.get('item_id', '')
+
+            # Auto-resolve item_id if missing
+            if not item_id and order_id:
+                order = cloth_orders_collection.find_one({'order_id': order_id})
+                if order and order.get('items'):
+                    item = next((i for i in order['items'] if i.get('sku_name') == sku_name and (not color or i.get('color') == color)), None)
+                    if item:
+                        item_id = item.get('item_id', '')
 
             # Get available quantity (current holdings specifically for this order)
             available = get_entity_holding(from_worker, sku_name=sku_name, color=color, order_id=order_id)
@@ -1886,6 +1916,229 @@ def get_supplier_holdings(supplier_name):
             'current_holdings': current_holdings,
             'total_pieces_current': sum(h['quantity'] for h in current_holdings),
             'activity': [serialize(e) for e in activity]
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/chalan-debug', methods=['GET'])
+def get_chalan_debug_data():
+    """Comprehensive debugger endpoint for a specific Chalan (order_id)."""
+    try:
+        order_id = request.args.get('order_id', '').strip()
+        chalan_number = request.args.get('chalan_number', '').strip()
+
+        if not order_id and not chalan_number:
+            return jsonify({'error': 'Either order_id or chalan_number is required'}), 400
+
+        query = {}
+        if order_id:
+            query['order_id'] = order_id
+        elif chalan_number:
+            try:
+                query['chalan_number'] = int(chalan_number)
+            except ValueError:
+                return jsonify({'error': 'Invalid chalan_number format'}), 400
+
+        # Find the cloth order
+        order = cloth_orders_collection.find_one(query)
+        if not order:
+            return jsonify({'error': 'Cloth order not found'}), 404
+
+        order_id = order.get('order_id')
+        chalan_num = order.get('chalan_number')
+
+        # 1. Fetch raw order items
+        order_items = order.get('items', [])
+
+        # 2. Fetch ledger history
+        ledger_entries = list(work_ledger_collection.find({'order_id': order_id}).sort([('ledger_number_int', 1), ('created_at', 1)]))
+
+        # 3. Calculate holdings/remaining for all entities
+        holdings_map = {} # (entity, sku, color) -> qty
+        for entry in ledger_entries:
+            sku = entry.get('sku_name', '')
+            color = entry.get('color', '') or ''
+            qty = entry.get('quantity', 0)
+            from_ent = entry.get('from_entity')
+            to_ent = entry.get('to_entity')
+
+            if from_ent:
+                key_from = (from_ent, sku, color)
+                holdings_map[key_from] = holdings_map.get(key_from, 0) - qty
+            if to_ent:
+                key_to = (to_ent, sku, color)
+                holdings_map[key_to] = holdings_map.get(key_to, 0) + qty
+
+        holdings = []
+        for (entity, sku, color), qty in holdings_map.items():
+            if qty != 0:
+                holdings.append({
+                    'entity': entity,
+                    'sku_name': sku,
+                    'color': color,
+                    'quantity': qty
+                })
+        holdings.sort(key=lambda x: (x['entity'], x['sku_name'], x['color']))
+
+        # 4. Fetch barcode generation counts
+        barcodes_pipeline = [
+            {'$match': {'order_id': order_id}},
+            {'$group': {
+                '_id': {'sku_name': '$sku_name', 'color': '$color'},
+                'count': {'$sum': 1}
+            }}
+        ]
+        barcode_results = list(barcodes_collection.aggregate(barcodes_pipeline))
+        barcode_counts = {}
+        for br in barcode_results:
+            sku = br['_id']['sku_name']
+            color = br['_id'].get('color') or ''
+            barcode_counts[f"{sku}|{color}"] = br['count']
+
+        # Format and serialize the response
+        serialized_ledger = [serialize(e) for e in ledger_entries]
+        
+        return jsonify({
+            'order_id': order_id,
+            'chalan_number': chalan_num,
+            'supplier_name': order.get('supplier_name', ''),
+            'status': order.get('status', ''),
+            'created_at': order.get('created_at').isoformat() if order.get('created_at') else '',
+            'items': order_items,
+            'ledger_entries': serialized_ledger,
+            'holdings': holdings,
+            'barcode_counts': barcode_counts
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@production_bp.route('/api/production/chalan-debug-sku-flow', methods=['GET'])
+def get_chalan_debug_sku_flow():
+    """Returns detailed, step-by-step transaction flow and running balances for each SKU in a Chalan."""
+    try:
+        order_id = request.args.get('order_id', '').strip()
+        chalan_number = request.args.get('chalan_number', '').strip()
+
+        if not order_id and not chalan_number:
+            return jsonify({'error': 'Either order_id or chalan_number is required'}), 400
+
+        query = {}
+        if order_id:
+            query['order_id'] = order_id
+        elif chalan_number:
+            try:
+                query['chalan_number'] = int(chalan_number)
+            except ValueError:
+                return jsonify({'error': 'Invalid chalan_number format'}), 400
+
+        # Find the cloth order
+        order = cloth_orders_collection.find_one(query)
+        if not order:
+            return jsonify({'error': 'Cloth order not found'}), 404
+
+        order_id = order.get('order_id')
+        chalan_num = order.get('chalan_number')
+
+        # 1. Fetch raw order items
+        order_items = order.get('items', [])
+
+        # 2. Fetch ledger history
+        ledger_entries = list(work_ledger_collection.find({'order_id': order_id}).sort([('ledger_number_int', 1), ('created_at', 1)]))
+
+        # 3. Fetch barcode counts
+        barcodes_pipeline = [
+            {'$match': {'order_id': order_id}},
+            {'$group': {
+                '_id': {'sku_name': '$sku_name', 'color': '$color'},
+                'count': {'$sum': 1}
+            }}
+        ]
+        barcode_results = list(barcodes_collection.aggregate(barcodes_pipeline))
+        barcode_counts = {}
+        for br in barcode_results:
+            sku = br['_id']['sku_name']
+            color = br['_id'].get('color') or ''
+            barcode_counts[f"{sku}|{color}"] = br['count']
+
+        # 4. Group ledger entries by SKU & color and compute step-by-step running holdings
+        sku_flows = {}
+
+        # Initialize flow maps for each item in the order
+        for item in order_items:
+            sku = item.get('sku_name', '')
+            color = item.get('color', '') or ''
+            key = f"{sku}|{color}"
+            sku_flows[key] = {
+                'sku_name': sku,
+                'color': color,
+                'ordered_quantity': item.get('quantity_ordered', 0),
+                'fabric_type': item.get('fabric_type', ''),
+                'status': item.get('status', 'ordered'),
+                'mrp': item.get('mrp', 0),
+                'steps': [],
+                'barcode_count': barcode_counts.get(key, 0)
+            }
+
+        # Track running holdings per SKU key
+        running_holdings_by_sku = {} # key -> { entity -> qty }
+
+        for entry in ledger_entries:
+            sku = entry.get('sku_name', '')
+            color = entry.get('color', '') or ''
+            key = f"{sku}|{color}"
+
+            # If not already initialized
+            if key not in sku_flows:
+                sku_flows[key] = {
+                    'sku_name': sku,
+                    'color': color,
+                    'ordered_quantity': 0,
+                    'fabric_type': '',
+                    'status': 'unknown',
+                    'mrp': 0,
+                    'steps': [],
+                    'barcode_count': barcode_counts.get(key, 0)
+                }
+
+            if key not in running_holdings_by_sku:
+                running_holdings_by_sku[key] = {}
+
+            from_ent = entry.get('from_entity')
+            to_ent = entry.get('to_entity')
+            qty = entry.get('quantity', 0)
+
+            # Update running balances
+            if from_ent:
+                running_holdings_by_sku[key][from_ent] = running_holdings_by_sku[key].get(from_ent, 0) - qty
+            if to_ent:
+                running_holdings_by_sku[key][to_ent] = running_holdings_by_sku[key].get(to_ent, 0) + qty
+
+            # Format current holdings (exclude 0-quantity holding entities for clarity)
+            holdings_after = {entity: q for entity, q in running_holdings_by_sku[key].items() if q != 0}
+
+            step = {
+                'ledger_id': entry.get('ledger_id'),
+                'ledger_number_int': entry.get('ledger_number_int'),
+                'from_entity': from_ent,
+                'to_entity': to_ent,
+                'quantity': qty,
+                'stage': entry.get('stage'),
+                'work_type': entry.get('work_type'),
+                'notes': entry.get('notes'),
+                'created_at': entry.get('created_at').isoformat() if entry.get('created_at') else '',
+                'holdings_after_step': holdings_after
+            }
+            sku_flows[key]['steps'].append(step)
+
+        return jsonify({
+            'order_id': order_id,
+            'chalan_number': chalan_num,
+            'supplier_name': order.get('supplier_name', ''),
+            'status': order.get('status', ''),
+            'created_at': order.get('created_at').isoformat() if order.get('created_at') else '',
+            'sku_flows': sku_flows
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

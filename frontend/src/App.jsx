@@ -17,6 +17,7 @@ import Production from './components/Production'
 import ProductionTracker from './components/ProductionTracker'
 import SkuCatalog from './components/SkuCatalog'
 import GeneralLedger from './components/GeneralLedger'
+import ChalanDebugger from './components/ChalanDebugger'
 import AccessGate from './components/AccessGate'
 import Sidebar from './components/Sidebar'
 
@@ -35,6 +36,7 @@ function MainLayout() {
           <Route path="/tracker" element={<ProductionTracker />} />
           <Route path="/skus" element={<SkuCatalog />} />
           <Route path="/general-ledger" element={<GeneralLedger />} />
+          <Route path="/chalan-debugger" element={<ChalanDebugger />} />
           <Route path="/generator" element={<BarcodeGenerator />} />
           <Route path="/batch/:batchId" element={<BatchDetails />} />
           <Route path="/alerts" element={<Alerts />} />

@@ -16,7 +16,8 @@ import {
   MdNotifications,
   MdSettings,
   MdLabel,
-  MdBook
+  MdBook,
+  MdBugReport
 } from 'react-icons/md'
 import styles from './Sidebar.module.css'
 
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { path: '/tracker', label: 'Prod. Tracker', icon: MdTimeline },
   { path: '/skus', label: 'SKU Catalog', icon: MdLabel },
   { path: '/general-ledger', label: 'General Ledger', icon: MdBook },
+  { path: '/chalan-debugger', label: 'Chalan Debugger', icon: MdBugReport },
   // { path: '/generator', label: 'Generate Barcodes', icon: MdQrCode2 },
   { path: '/alerts', label: 'Alerts', icon: MdNotifications, badge: true },
   { path: '/settings', label: 'Settings', icon: MdSettings },
