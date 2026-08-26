@@ -383,11 +383,17 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
                 }
                 return null
               })()}
-              {order.items.some(i => i.status !== 'in_work' && i.status !== 'completed') && (
+              {order.items.some(i => i.status !== 'completed') && (
                 <button className="btn btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openAssignOrder(order)}>
                   <MdAssignment size={13} /> Assign All
                 </button>
               )}
+              <button className="btn btn-outline" style={{ fontSize: 11, padding: '3px 10px', color: '#6366f1', borderColor: '#6366f1' }} onClick={() => {
+                const chalanParam = order.chalan_number ? `chalan=${order.chalan_number}` : `order_id=${encodeURIComponent(order.order_id)}`
+                navigate(`/chalan-debugger?${chalanParam}`)
+              }}>
+                <MdTimeline size={13} /> Track Chalan
+              </button>
               <button className="btn btn-outline" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => openOrderLedger(order)}>
                 <MdBook size={13} /> Ledger
               </button>
@@ -417,12 +423,20 @@ function ClothOrders({ orders, workers, workerStock, onRefresh }) {
                     <td><Badge text={STATUS_LABELS[item.status] || item.status} color={STATUS_COLORS[item.status]} /></td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {item.status !== 'in_work' && item.status !== 'completed' && (
+                        {item.status !== 'completed' && (
                           <button className="btn btn-outline" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => openAssign(order, item)}>
                             <MdBuild size={13} /> Assign
                           </button>
                         )}
-                        <button className={styles.trackBtn} onClick={() => navigate(`/tracker?sku=${encodeURIComponent(item.sku_name)}`)}>
+                        <button
+                          className={styles.trackBtn}
+                          onClick={() => {
+                            const chalanParam = order.chalan_number ? `chalan=${order.chalan_number}` : `order_id=${encodeURIComponent(order.order_id)}`
+                            const skuParam = `sku=${encodeURIComponent(item.sku_name)}`
+                            const colorParam = item.color ? `&color=${encodeURIComponent(item.color)}` : ''
+                            navigate(`/chalan-debugger?${chalanParam}&${skuParam}${colorParam}`)
+                          }}
+                        >
                           <MdTimeline size={13} /> Track
                         </button>
                         {workerStock && workerStock.filter(ws => ws.sku_name === item.sku_name && ws.order_id === order.order_id).length > 0 && (

@@ -4,6 +4,7 @@ import { apiFetch } from '../../config'
 import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, WORK_TYPES_JOB,
          EditableDateCell, RevertButton } from './helpers'
 import QuickAddWorker from './QuickAddWorker'
+import WorkerHoldingsMasterDetail from './WorkerHoldingsMasterDetail'
 import styles from './JobWork.module.css'
 
 function JobWork({ workers, workerStock, ledger, orders, onRefresh }) {
@@ -97,11 +98,6 @@ function JobWork({ workers, workerStock, ledger, orders, onRefresh }) {
   orders.forEach(o => { orderSupplierMap[o.order_id] = o.supplier_name || '—' })
 
   const grouped = {}
-  workerStock.forEach(ws => {
-    if (!grouped[ws.worker_name]) grouped[ws.worker_name] = []
-    grouped[ws.worker_name].push(ws)
-  })
-
   const jobLedger = ledger.filter(e => ['job_assigned', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage))
 
   return (
@@ -116,63 +112,27 @@ function JobWork({ workers, workerStock, ledger, orders, onRefresh }) {
         </button>
       </div>
 
-      {/* Worker Cards */}
-      {Object.keys(grouped).length > 0 ? (
-        <div className={styles.workerGrid}>
-          {Object.entries(grouped).map(([workerName, items]) => {
-                // Group items by order_id
-                const byOrder = {}
-                items.forEach(item => {
-                  const oid = item.order_id || 'Other'
-                  if (!byOrder[oid]) byOrder[oid] = []
-                  byOrder[oid].push(item)
-                })
-                return (
-                <div key={workerName} className={styles.workerCard}>
-                  <div className={styles.workerCardHeader}>
-                    <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
-                    <div>
-                      <div className={styles.workerName}>{workerName}</div>
-                      <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces total</div>
-                    </div>
-                  </div>
-                  {Object.entries(byOrder).map(([orderId, orderItems]) => {
-                    const chalanNumber = orderItems[0]?.chalan_number || ''
-                    return (
-                      <div key={orderId} style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6, border: '1px solid var(--border-color, #e5e7eb)' }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          {chalanNumber && (
-                            <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>
-                              # ({chalanNumber})
-                            </span>
-                          )}
-                          <span style={{ color: 'var(--text-primary)' }}>
-                            {orderId.startsWith('ORD') ? orderId : 'Other'}
-                          </span>
-                          <span style={{ color: '#6366f1', fontWeight: 400 }}>({orderSupplierMap[orderId] || '—'})</span>
-                        </div>
-                        {orderItems.map((item, idx) => (
-                          <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
-                            <span>{item.sku_name}{item.color ? <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({item.color})</span> : ''}</span>
-                            <span className="badge badge-warning">{item.quantity}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-                )
-              })}
-        </div>
-      ) : (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="empty-state" style={{ padding: 40 }}>
-            <div className="empty-state-icon"><MdPeople size={52} /></div>
-            <div className="empty-state-title">No pieces with workers</div>
-            <div className="empty-state-description">Assign cloth to a worker after receiving an order</div>
-          </div>
-        </div>
-      )}
+      {/* Master-Detail Worker Holdings */}
+      <WorkerHoldingsMasterDetail
+        workerStock={workerStock}
+        workers={workers}
+        orders={orders}
+        emptyTitle="No pieces with workers"
+        emptyDescription="Assign cloth to a worker after receiving an order to see holdings here."
+        headerAction={(group) => (
+          <button
+            className="btn btn-outline"
+            style={{ fontSize: 12, padding: '4px 12px' }}
+            onClick={() => {
+              setAssignForm(p => ({ ...p, worker_name: group.worker_name }))
+              setModal('assign')
+            }}
+          >
+            <MdBuild size={13} style={{ marginRight: 4 }} />
+            Assign More
+          </button>
+        )}
+      />
 
       {/* Job Work Ledger */}
       <div className="card">
@@ -189,25 +149,34 @@ function JobWork({ workers, workerStock, ledger, orders, onRefresh }) {
                 <tr><th>#</th><th>SKU</th><th>From→To</th><th>Qty</th><th>Work Type</th><th>Stage</th><th>Date</th><th></th></tr>
               </thead>
               <tbody>
-                {jobLedger.map((e, i) => (
-                  <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
-                    <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
-                    <td><strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong></td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
-                        opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>{e.from_entity}</span>
-                        <MdArrowForward size={12} />
-                        <span style={{ fontWeight: 600 }}>{e.to_entity}</span>
-                      </div>
-                    </td>
-                    <td><span className="badge badge-primary">{e.quantity}</span></td>
-                    <td><Badge text={e.work_type || '—'} color="#f59e0b" /></td>
-                    <td><Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} /></td>
-                    <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
-                    <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
-                  </tr>
-                ))}
+                {jobLedger.map((e, i) => {
+                  const chalanNum = e.chalan_number || orders.find(o => o.order_id === e.order_id)?.chalan_number || ''
+                  return (
+                    <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
+                      <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
+                      <td>
+                        {chalanNum && (
+                          <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 11, marginRight: 5 }}>#{chalanNum}</span>
+                        )}
+                        <strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong>
+                        {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
+                          opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{e.from_entity}</span>
+                          <MdArrowForward size={12} />
+                          <span style={{ fontWeight: 600 }}>{e.to_entity}</span>
+                        </div>
+                      </td>
+                      <td><span className="badge badge-primary">{e.quantity}</span></td>
+                      <td><Badge text={e.work_type || '—'} color="#f59e0b" /></td>
+                      <td><Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} /></td>
+                      <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
+                      <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

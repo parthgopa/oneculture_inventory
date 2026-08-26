@@ -1,12 +1,32 @@
 import { useState, useEffect } from 'react'
-import { MdTimeline, MdSearch, MdError, MdCheckCircle, MdArrowForward, MdInfo, MdQrCode, MdArrowBack, MdLayers, MdPerson } from 'react-icons/md'
+import { useSearchParams } from 'react-router-dom'
+import {
+  MdTimeline,
+  MdSearch,
+  MdError,
+  MdCheckCircle,
+  MdArrowForward,
+  MdInfo,
+  MdQrCode,
+  MdArrowBack,
+  MdLayers,
+  MdPerson,
+  MdBugReport
+} from 'react-icons/md'
 import { apiFetch } from '../config'
 import { Badge, STAGE_LABELS, STAGE_COLORS } from './production/helpers'
+import styles from './ChalanDebugger.module.css'
 
 function ChalanDebugger() {
+  const [searchParams] = useSearchParams()
+  const queryChalan = searchParams.get('chalan') || searchParams.get('chalan_number')
+  const queryOrderId = searchParams.get('order_id')
+  const querySku = searchParams.get('sku') || searchParams.get('sku_name')
+  const queryColor = searchParams.get('color')
+
   const [orders, setOrders] = useState([])
-  const [selectedOrderId, setSelectedOrderId] = useState('')
-  const [searchChalan, setSearchChalan] = useState('')
+  const [selectedOrderId, setSelectedOrderId] = useState(queryOrderId || '')
+  const [searchChalan, setSearchChalan] = useState(queryChalan || '')
   const [loading, setLoading] = useState(false)
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -30,6 +50,47 @@ function ChalanDebugger() {
       })
   }, [])
 
+  // Auto-fetch if query param present on mount
+  useEffect(() => {
+    if (queryChalan) {
+      setSearchChalan(queryChalan)
+      setLoading(true)
+      setError(null)
+      setData(null)
+      setSelectedOrderId('')
+      setSelectedSkuKey('')
+
+      apiFetch(`/api/production/chalan-debug-sku-flow?chalan_number=${encodeURIComponent(queryChalan.trim())}`)
+        .then(async res => {
+          const payload = await res.json()
+          if (!res.ok) throw new Error(payload.error || 'Chalan not found')
+          setData(payload)
+          setSelectedOrderId(payload.order_id)
+          // Auto-select SKU if provided in URL
+          if (querySku && payload.sku_flows) {
+            const matchedKey = Object.keys(payload.sku_flows).find(k => {
+              const flow = payload.sku_flows[k]
+              const skuMatch = flow.sku_name.toLowerCase() === querySku.toLowerCase()
+              const colorMatch = !queryColor || (flow.color && flow.color.toLowerCase() === queryColor.toLowerCase())
+              return skuMatch && colorMatch
+            }) || Object.keys(payload.sku_flows).find(k => {
+              const flow = payload.sku_flows[k]
+              return flow.sku_name.toLowerCase() === querySku.toLowerCase()
+            })
+            if (matchedKey) setSelectedSkuKey(matchedKey)
+          }
+        })
+        .catch(err => {
+          setError(err.message)
+        })
+        .finally(() => {
+          setLoading(false)
+        })
+    } else if (queryOrderId) {
+      setSelectedOrderId(queryOrderId)
+    }
+  }, [queryChalan, queryOrderId, querySku, queryColor])
+
   // Fetch debug info when selectedOrderId changes
   useEffect(() => {
     if (!selectedOrderId) {
@@ -45,7 +106,20 @@ function ChalanDebugger() {
         const payload = await res.json()
         if (!res.ok) throw new Error(payload.error || 'Failed to fetch debug data')
         setData(payload)
-        setSelectedSkuKey('')
+        if (querySku && payload.sku_flows) {
+          const matchedKey = Object.keys(payload.sku_flows).find(k => {
+            const flow = payload.sku_flows[k]
+            const skuMatch = flow.sku_name.toLowerCase() === querySku.toLowerCase()
+            const colorMatch = !queryColor || (flow.color && flow.color.toLowerCase() === queryColor.toLowerCase())
+            return skuMatch && colorMatch
+          }) || Object.keys(payload.sku_flows).find(k => {
+            const flow = payload.sku_flows[k]
+            return flow.sku_name.toLowerCase() === querySku.toLowerCase()
+          })
+          setSelectedSkuKey(matchedKey || '')
+        } else {
+          setSelectedSkuKey('')
+        }
       })
       .catch(err => {
         setError(err.message)
@@ -91,34 +165,33 @@ function ChalanDebugger() {
   // Helper to format entities' holdings
   const renderHoldings = (holdingsObj) => {
     if (!holdingsObj || Object.keys(holdingsObj).length === 0) {
-      return <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '11px' }}>None</span>
+      return <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '13px' }}>None</span>
     }
     return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         {Object.entries(holdingsObj).map(([entity, qty]) => {
-          const isNegative = qty < 0;
-          let entityLabel = entity;
-          let bgColor = isNegative ? '#fee2e2' : '#d1fae5';
-          let textColor = isNegative ? '#991b1b' : '#065f46';
+          const isNegative = qty < 0
+          let entityLabel = entity
+          let bgColor = isNegative ? '#fee2e2' : '#d1fae5'
+          let textColor = isNegative ? '#991b1b' : '#065f46'
 
           if (entity === 'company') {
-            entityLabel = isNegative ? 'Company (Outflow)' : 'Company (In Hand)';
+            entityLabel = isNegative ? 'Company (Outflow)' : 'Company (In Hand)'
           } else {
-            entityLabel = `${entity} (In Hand)`;
+            entityLabel = `${entity} (In Hand)`
           }
 
           return (
-            <span key={entity} style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              backgroundColor: bgColor,
-              color: textColor,
-              padding: '2px 6px',
-              borderRadius: '4px',
-              fontSize: '11px',
-              fontWeight: 500
-            }}>
-              {entityLabel}: <strong>{qty} pcs</strong>
+            <span
+              key={entity}
+              className={styles.holdingBadge}
+              style={{
+                backgroundColor: bgColor,
+                color: textColor,
+                border: `1px solid ${isNegative ? '#fca5a5' : '#a7f3d0'}`
+              }}
+            >
+              {entityLabel}:&nbsp;<strong>{qty} pcs</strong>
             </span>
           )
         })}
@@ -127,30 +200,32 @@ function ChalanDebugger() {
   }
 
   return (
-    <div style={{ padding: '8px 16px' }}>
-      <div className="page-header" style={{ marginBottom: 16 }}>
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, margin: 0, fontSize: '20px' }}>
-          <MdTimeline size={24} style={{ color: 'var(--primary-color)' }} />
-          Chalan Debugger & Audit Tool
+    <div className={styles.container}>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>
+          <MdBugReport size={30} style={{ color: 'var(--primary-color)' }} />
+          Chalan Tracker & Audit Tool
         </h1>
+        <p className={styles.pageSubtitle}>
+          Complete end-to-end trace of physical inventory movements, worker handovers, and piece conservation per chalan.
+        </p>
       </div>
 
       {/* Select / Search Section */}
-      <div className="card" style={{ padding: 12, marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: '220px' }}>
-            <label className="form-label" style={{ fontWeight: 600, marginBottom: 4, display: 'block', fontSize: '12px' }}>Select Order / Chalan</label>
+      <div className={styles.controlCard}>
+        <div className={styles.controlRow}>
+          <div className={styles.controlGroup} style={{ flex: 2 }}>
+            <label className={styles.controlLabel}>Select Order / Chalan</label>
             <select
-              className="form-input"
+              className={styles.selectInput}
               value={selectedOrderId}
               onChange={e => {
                 setSelectedOrderId(e.target.value)
                 setSearchChalan('')
               }}
               disabled={ordersLoading}
-              style={{ padding: '6px 10px', fontSize: '13px' }}
             >
-              <option value="">Choose an order...</option>
+              <option value="">Choose an order / chalan...</option>
               {orders.map(o => (
                 <option key={o.order_id} value={o.order_id}>
                   {o.order_id} (Chalan #{o.chalan_number || '—'}) — {o.supplier_name || 'No Supplier'}
@@ -159,21 +234,20 @@ function ChalanDebugger() {
             </select>
           </div>
 
-          <div style={{ minWidth: '180px' }}>
-            <form onSubmit={handleChalanSearch} style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          <div className={styles.controlGroup} style={{ flex: 1, minWidth: '240px' }}>
+            <form onSubmit={handleChalanSearch} style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
-                <label className="form-label" style={{ fontWeight: 600, marginBottom: 4, display: 'block', fontSize: '12px' }}>Search Chalan Number</label>
+                <label className={styles.controlLabel}>Search Chalan #</label>
                 <input
                   type="text"
                   placeholder="e.g. 538"
-                  className="form-input"
+                  className={styles.textInput}
                   value={searchChalan}
                   onChange={e => setSearchChalan(e.target.value)}
-                  style={{ padding: '6px 10px', fontSize: '13px' }}
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', fontSize: '13px' }}>
-                <MdSearch size={16} /> Search
+              <button type="submit" className={`btn btn-primary ${styles.searchBtn}`}>
+                <MdSearch size={18} /> Search
               </button>
             </form>
           </div>
@@ -181,59 +255,57 @@ function ChalanDebugger() {
       </div>
 
       {error && (
-        <div className="alert alert-danger" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: '13px' }}>
-          <MdError size={18} /> {error}
+        <div className="alert alert-danger" style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', fontSize: '14px' }}>
+          <MdError size={20} /> {error}
         </div>
       )}
 
       {loading && (
-        <div style={{ textAlign: 'center', padding: '30px 0' }}>
-          <div className="loading" />
-          <p style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: '12px' }}>Gathering diagnostics...</p>
+        <div style={{ textAlign: 'center', padding: '60px 0' }}>
+          <div className="loading" style={{ width: 40, height: 40 }} />
+          <p style={{ marginTop: 12, color: 'var(--text-secondary)', fontSize: '15px', fontWeight: 600 }}>Gathering live diagnostics and entity balances...</p>
         </div>
       )}
 
       {data && !loading && (
         <div>
           {/* Chalan Overview Stats */}
-          <div className="card" style={{ padding: 12, marginBottom: 16, borderLeft: '4px solid var(--primary-color)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Chalan / Order ID</span>
-                <div style={{ fontSize: '13px', fontWeight: 700, marginTop: 2 }}>
-                  {data.order_id} {data.chalan_number ? <span style={{ color: '#dc2626' }}>[Chalan #{data.chalan_number}]</span> : ''}
+          <div className={styles.statsCard}>
+            <div className={styles.statsGrid}>
+              <div className={styles.statItem}>
+                <span className={styles.statLabel}>Chalan / Order ID</span>
+                <div className={styles.statValue}>
+                  {data.order_id}
+                  {data.chalan_number ? <span className={styles.chalanBadge}>[Chalan #{data.chalan_number}]</span> : ''}
                 </div>
               </div>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Supplier Name</span>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginTop: 2 }}>{data.supplier_name || '—'}</div>
+              <div className={styles.statItem}>
+                <span className={styles.statLabel}>Supplier Name</span>
+                <div className={styles.statValue}>{data.supplier_name || '—'}</div>
               </div>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Order Status</span>
+              <div className={styles.statItem}>
+                <span className={styles.statLabel}>Order Status</span>
                 <div style={{ marginTop: 2 }}>
                   <Badge text={data.status || 'unknown'} color={data.status === 'completed' ? 'success' : 'warning'} />
                 </div>
               </div>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Created Date</span>
-                <div style={{ fontSize: '13px', marginTop: 2 }}>
+              <div className={styles.statItem}>
+                <span className={styles.statLabel}>Created Date</span>
+                <div className={styles.statValue}>
                   {data.created_at ? new Date(data.created_at).toLocaleDateString() : '—'}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* SKU Select Dropdown */}
-          <div className="card" style={{ padding: 10, marginBottom: 16, backgroundColor: '#f9fafb', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <label className="form-label" style={{ fontWeight: 600, margin: 0, fontSize: '12px' }}>
-                Select SKU:
-              </label>
+          {/* SKU Select & Audit Toolbar */}
+          <div className={styles.toolbarCard}>
+            <div className={styles.toolbarGroup}>
+              <label className={styles.toolbarLabel}>Select SKU:</label>
               <select
-                className="form-input"
+                className={styles.toolbarSelect}
                 value={selectedSkuKey}
                 onChange={e => setSelectedSkuKey(e.target.value)}
-                style={{ width: '220px', padding: '4px 8px', fontSize: '12px' }}
               >
                 <option value="">-- View all SKUs in Chalan --</option>
                 {Object.keys(data.sku_flows).sort().map(key => {
@@ -250,18 +322,14 @@ function ChalanDebugger() {
             {selectedSkuKey && (() => {
               const flow = data.sku_flows[selectedSkuKey]
               if (!flow || !flow.steps) return null
-              // Extract unique entities involved in this SKU flow
               const uniqueEntities = [...new Set(flow.steps.flatMap(s => [s.from_entity, s.to_entity]))].filter(Boolean).sort()
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="form-label" style={{ fontWeight: 600, margin: 0, fontSize: '12px' }}>
-                    Audit Person:
-                  </label>
+                <div className={styles.toolbarGroup}>
+                  <label className={styles.toolbarLabel}>Audit Person:</label>
                   <select
-                    className="form-input"
+                    className={styles.toolbarSelect}
                     value={selectedPerson}
                     onChange={e => setSelectedPerson(e.target.value)}
-                    style={{ width: '220px', padding: '4px 8px', fontSize: '12px' }}
                   >
                     <option value="">-- View all movements --</option>
                     {uniqueEntities.map(ent => (
@@ -274,16 +342,16 @@ function ChalanDebugger() {
           </div>
 
           {!selectedSkuKey ? (
-            /* ── VIEW ALL SKUs IN CHALAN ── */
-            <div className="card" style={{ padding: 0 }}>
-              <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)' }}>
-                <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <MdLayers size={16} style={{ color: 'var(--primary-color)' }} />
+            /* ── VIEW ALL SKUs IN CHALAN TABLE ── */
+            <div className={styles.allSkusCard}>
+              <div className={styles.allSkusHeader}>
+                <h3 className={styles.allSkusTitle}>
+                  <MdLayers size={20} style={{ color: 'var(--primary-color)' }} />
                   SKUs List in this Chalan
                 </h3>
               </div>
               <div className="table-container">
-                <table className="table" style={{ fontSize: '12px' }}>
+                <table className={styles.allSkusTable}>
                   <thead>
                     <tr>
                       <th>SKU Name</th>
@@ -292,31 +360,30 @@ function ChalanDebugger() {
                       <th>Fabric</th>
                       <th>Status</th>
                       <th>Barcodes</th>
-                      <th style={{ width: '100px' }}>Actions</th>
+                      <th style={{ width: '120px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Object.entries(data.sku_flows).map(([key, flow]) => (
                       <tr key={key}>
-                        <td><strong>{flow.sku_name}</strong></td>
+                        <td><strong style={{ fontSize: '15px' }}>{flow.sku_name}</strong></td>
                         <td>{flow.color || 'No Color'}</td>
-                        <td>{flow.ordered_quantity} pcs</td>
+                        <td><strong style={{ fontSize: '15px' }}>{flow.ordered_quantity} pcs</strong></td>
                         <td>{flow.fabric_type || '—'}</td>
                         <td>
                           <Badge text={flow.status || 'unknown'} color={flow.status === 'completed' ? 'success' : 'warning'} />
                         </td>
                         <td>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, color: flow.barcode_count > 0 ? 'var(--success-color)' : 'inherit' }}>
-                            <MdQrCode size={14} /> {flow.barcode_count} generated
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: flow.barcode_count > 0 ? 'var(--success-color)' : 'inherit' }}>
+                            <MdQrCode size={16} /> {flow.barcode_count} generated
                           </span>
                         </td>
                         <td>
                           <button
-                            className="btn btn-outline btn-sm"
+                            className={`btn btn-primary ${styles.traceActionBtn}`}
                             onClick={() => setSelectedSkuKey(key)}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', fontSize: '11px' }}
                           >
-                            Trace <MdArrowForward size={12} />
+                            Trace <MdArrowForward size={14} />
                           </button>
                         </td>
                       </tr>
@@ -331,12 +398,10 @@ function ChalanDebugger() {
               const flow = data.sku_flows[selectedSkuKey]
               if (!flow) return null
 
-              // Filter steps if selectedPerson is chosen
               const filteredSteps = selectedPerson
                 ? flow.steps.filter(s => s.from_entity === selectedPerson || s.to_entity === selectedPerson)
                 : flow.steps
 
-              // Calculate summary stats for the selected person
               let personSummary = null
               if (selectedPerson) {
                 const inflow = flow.steps
@@ -349,221 +414,175 @@ function ChalanDebugger() {
               }
 
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                   {/* SKU Stats Card */}
-                  <div className="card" style={{ padding: 10, backgroundColor: '#fef3c7', border: '1px solid #f59e0b' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <div className={styles.traceBanner}>
+                    <div className={styles.traceHeader}>
                       <div>
-                        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 700 }}>
+                        <h4 className={styles.traceTitle}>
                           Trace: {flow.sku_name} {flow.color ? `(${flow.color})` : ''}
                         </h4>
-                        <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: '11px', color: '#78350f' }}>
-                          <span>Fabric: <strong>{flow.fabric_type || '—'}</strong></span>
-                          <span>MRP: <strong>₹{flow.mrp || '—'}</strong></span>
-                          <span>Ordered: <strong>{flow.ordered_quantity} pcs</strong></span>
-                          <span>Barcodes: <strong>{flow.barcode_count}</strong></span>
+                        <div className={styles.traceMetaList}>
+                          <span className={styles.traceMetaItem}>Fabric: <strong>{flow.fabric_type || '—'}</strong></span>
+                          <span className={styles.traceMetaItem}>MRP: <strong>₹{flow.mrp || '—'}</strong></span>
+                          <span className={styles.traceMetaItem}>Ordered: <strong>{flow.ordered_quantity} pcs</strong></span>
+                          <span className={styles.traceMetaItem}>Barcodes: <strong>{flow.barcode_count}</strong></span>
                         </div>
                       </div>
                       <button
-                        className="btn btn-outline btn-sm"
+                        className={styles.backBtn}
                         onClick={() => setSelectedSkuKey('')}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fff', padding: '3px 8px', fontSize: '11px' }}
                       >
-                        <MdArrowBack size={14} /> Back
+                        <MdArrowBack size={16} /> Back to SKUs List
                       </button>
                     </div>
                   </div>
 
                   {/* Selected Person Summary Audit */}
                   {selectedPerson && personSummary && (
-                    <div className="card" style={{ padding: 10, backgroundColor: '#f0fdf4', border: '1px solid #86efac' }}>
-                      <h4 style={{ margin: '0 0 6px 0', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <MdPerson size={16} /> Audit for {selectedPerson}
+                    <div className={styles.personAuditCard}>
+                      <h4 className={styles.personAuditTitle}>
+                        <MdPerson size={20} /> Movement Summary for {selectedPerson}
                       </h4>
-                      <div style={{ display: 'flex', gap: 24, fontSize: '12px' }}>
-                        <div>Received (Inflow): <strong style={{ color: '#166534' }}>{personSummary.inflow} pcs</strong></div>
-                        <div>Sent (Outflow): <strong style={{ color: '#b45309' }}>{personSummary.outflow} pcs</strong></div>
-                        <div>Current Remaining: <strong style={{ color: '#1e3a8a', fontSize: '13px' }}>{personSummary.balance} pcs</strong></div>
+                      <div className={styles.personAuditGrid}>
+                        <div>Received (Inflow): <strong style={{ color: '#166534', fontSize: '16px' }}>{personSummary.inflow} pcs</strong></div>
+                        <div>Sent (Outflow): <strong style={{ color: '#b45309', fontSize: '16px' }}>{personSummary.outflow} pcs</strong></div>
+                        <div>Current Remaining: <strong style={{ color: '#1e3a8a', fontSize: '18px' }}>{personSummary.balance} pcs</strong></div>
                       </div>
                     </div>
                   )}
 
-                  {/* Train-Stop Horizontal Journey Map */}
-                  <div className="card" style={{ padding: 12 }}>
-                    <div style={{ marginBottom: 12 }}>
-                      <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <MdTimeline size={18} style={{ color: 'var(--primary-color)' }} />
-                        SKU Flow Map (Stops & Arrow Flow)
+                  {/* Visual Flow Map */}
+                  <div className={styles.flowCard}>
+                    <div className={styles.flowHeader}>
+                      <h3 className={styles.flowTitle}>
+                        <MdTimeline size={22} style={{ color: 'var(--primary-color)' }} />
+                        SKU Flow Map (Stops & Material Journey)
                       </h3>
-                      <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        Shows step-by-step path of inventory. Bubbles show who received the goods. Arrows show how many pieces moved.
+                      <p className={styles.flowSubtitle}>
+                        Sequential path of inventory. Bubbles show stations that handled the goods. Arrows indicate quantity moved.
                       </p>
                     </div>
 
                     {filteredSteps && filteredSteps.length > 0 ? (
                       <div>
-                        {/* The horizontal station track */}
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: '12px 8px',
-                          backgroundColor: '#f8fafc',
-                          padding: '16px 12px',
-                          borderRadius: '8px',
-                          border: '1px solid #e2e8f0',
-                          justifyContent: 'flex-start'
-                        }}>
+                        {/* The Station Track */}
+                        <div className={styles.trackContainer}>
                           {/* Starting Point station */}
-                          <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            padding: '6px 12px',
-                            backgroundColor: '#f8fafc',
-                            border: '2px solid #64748b',
-                            borderRadius: '8px',
-                            minWidth: '105px',
-                            textAlign: 'center',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-                          }}>
-                            <span style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Start Location</span>
-                            <strong style={{ fontSize: '13px', color: '#1e293b', marginTop: 2 }}>{filteredSteps[0].from_entity}</strong>
+                          <div className={styles.startStation}>
+                            <span className={styles.stationSubLabel} style={{ color: '#64748b' }}>Start Location</span>
+                            <strong className={styles.stationName} style={{ color: '#1e293b' }}>{filteredSteps[0].from_entity}</strong>
                           </div>
 
                           {/* Render each step connection and stop */}
                           {filteredSteps.map((step, idx) => {
-                            const isHome = step.to_entity === 'company';
-                            const isSupplier = idx === 0;
+                            const isHome = step.to_entity === 'company'
+                            const isSupplier = idx === 0
 
-                            // Dynamic color configs for stations
-                            let stationBg = '#f0fdfa'; // default worker teal
-                            let stationBorder = '#0d9488';
-                            let stationText = '#0f766e';
-                            let stationLabel = `Worker (Stop #${idx + 1})`;
+                            let stationBg = '#f0fdfa'
+                            let stationBorder = '#0d9488'
+                            let stationText = '#0f766e'
+                            let stationLabel = `Worker (Stop #${idx + 1})`
 
                             if (isHome) {
-                              stationBg = '#f0fdf4'; // home green
-                              stationBorder = '#22c55e';
-                              stationText = '#15803d';
-                              stationLabel = 'Home (Received)';
+                              stationBg = '#f0fdf4'
+                              stationBorder = '#22c55e'
+                              stationText = '#15803d'
+                              stationLabel = 'Company (Received)'
                             } else if (isSupplier) {
-                              stationBg = '#fff7ed'; // supplier orange
-                              stationBorder = '#f97316';
-                              stationText = '#c2410c';
-                              stationLabel = 'Supplier';
+                              stationBg = '#fff7ed'
+                              stationBorder = '#f97316'
+                              stationText = '#c2410c'
+                              stationLabel = 'Supplier'
                             }
 
-                            // Dynamic colors for quantity pills based on stage
-                            let pillBg = '#4f46e5'; // default indigo
-                            let badgeBg = '#f3e8ff';
-                            let badgeText = '#6b21a8';
+                            let pillBg = '#4f46e5'
+                            let badgeBg = '#f3e8ff'
+                            let badgeText = '#6b21a8'
 
                             if (step.stage === 'cloth_received') {
-                              pillBg = '#0284c7'; // sky blue
-                              badgeBg = '#e0f2fe';
-                              badgeText = '#0369a1';
+                              pillBg = '#0284c7'
+                              badgeBg = '#e0f2fe'
+                              badgeText = '#0369a1'
                             } else if (step.stage === 'job_assigned' || step.stage === 'assigned') {
-                              pillBg = '#d97706'; // amber orange
-                              badgeBg = '#fef3c7';
-                              badgeText = '#b45309';
+                              pillBg = '#d97706'
+                              badgeBg = '#fef3c7'
+                              badgeText = '#b45309'
                             } else if (step.stage === 'transferred') {
-                              pillBg = '#8b5cf6'; // violet
-                              badgeBg = '#f3e8ff';
-                              badgeText = '#6b21a8';
+                              pillBg = '#8b5cf6'
+                              badgeBg = '#f3e8ff'
+                              badgeText = '#6b21a8'
                             } else if (step.stage === 'final_received') {
-                              pillBg = '#16a34a'; // emerald green
-                              badgeBg = '#d1fae5';
-                              badgeText = '#065f46';
+                              pillBg = '#16a34a'
+                              badgeBg = '#d1fae5'
+                              badgeText = '#065f46'
                             }
 
                             return (
-                              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div key={idx} className={styles.stepConnection}>
                                 {/* Arrow & movement details */}
-                                <div style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  minWidth: '100px',
-                                  position: 'relative'
-                                }}>
-                                  {/* Qty in stage-specific bubble */}
-                                  <span style={{
-                                    backgroundColor: pillBg,
-                                    color: '#fff',
-                                    fontSize: '11px',
-                                    fontWeight: 700,
-                                    padding: '2px 8px',
-                                    borderRadius: '12px',
-                                    boxShadow: `0 2px 4px ${pillBg}40`,
-                                    zIndex: 2
-                                  }}>
+                                <div className={styles.arrowBlock}>
+                                  <span
+                                    className={styles.quantityPill}
+                                    style={{
+                                      backgroundColor: pillBg,
+                                      boxShadow: `0 3px 8px ${pillBg}50`
+                                    }}
+                                  >
                                     {step.quantity} pcs
                                   </span>
 
-                                  {/* Action badge under the qty */}
-                                  <span style={{
-                                    fontSize: '9px',
-                                    color: badgeText,
-                                    fontWeight: 700,
-                                    marginTop: '3px',
-                                    backgroundColor: badgeBg,
-                                    padding: '2px 6px',
-                                    borderRadius: '4px',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.02em'
-                                  }}>
+                                  <span
+                                    className={styles.stageLabel}
+                                    style={{
+                                      color: badgeText,
+                                      backgroundColor: badgeBg
+                                    }}
+                                  >
                                     {STAGE_LABELS[step.stage] || step.stage}
                                   </span>
 
                                   {/* Connector Line */}
-                                  <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    width: '100%',
-                                    marginTop: '4px'
-                                  }}>
-                                    <div style={{ flex: 1, height: '2px', backgroundColor: '#94a3b8' }} />
-                                    <span style={{ color: '#94a3b8', fontSize: '11px', marginLeft: -4, marginTop: -5 }}>▶</span>
+                                  <div className={styles.arrowLine}>
+                                    <div className={styles.lineBar} />
+                                    <span className={styles.arrowHead}>▶</span>
                                   </div>
                                 </div>
 
                                 {/* Station Bubble (To Entity) */}
-                                <div style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  padding: '6px 12px',
-                                  backgroundColor: stationBg,
-                                  color: stationText,
-                                  border: `2px solid ${stationBorder}`,
-                                  borderRadius: '8px',
-                                  minWidth: '110px',
-                                  textAlign: 'center',
-                                  boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-                                }}>
-                                  <span style={{ fontSize: '9px', fontWeight: 700, color: stationBorder, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <div
+                                  className={styles.stationBubble}
+                                  style={{
+                                    backgroundColor: stationBg,
+                                    color: stationText,
+                                    border: `2.5px solid ${stationBorder}`
+                                  }}
+                                >
+                                  <span
+                                    className={styles.stationSubLabel}
+                                    style={{ color: stationBorder }}
+                                  >
                                     {stationLabel}
                                   </span>
-                                  <strong style={{ fontSize: '13px', marginTop: 2 }}>{step.to_entity}</strong>
+                                  <strong className={styles.stationName}>{step.to_entity}</strong>
                                 </div>
                               </div>
                             )
                           })}
                         </div>
 
-                        {/* Summary metadata (Dates and Notes) in a compact list below */}
-                        <div style={{ marginTop: 12, backgroundColor: '#f9fafb', borderRadius: '6px', padding: '8px 12px', border: '1px solid #f3f4f6' }}>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-                            Station Log & Comments:
+                        {/* Station Logs & Comments */}
+                        <div className={styles.logBox}>
+                          <span className={styles.logTitle}>
+                            Station Log & Audit History:
                           </span>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {filteredSteps.map((step, idx) => (
-                              <div key={idx} style={{ fontSize: '11.5px', color: '#4b5563', display: 'flex', justifyContent: 'space-between', borderBottom: idx < filteredSteps.length - 1 ? '1px solid #f3f4f6' : 'none', paddingBottom: 2, marginBottom: 2 }}>
+                              <div key={idx} className={styles.logRow}>
                                 <span>
                                   <strong>Stop #{idx + 1} ({step.to_entity}):</strong> {step.notes ? `"${step.notes}"` : <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>No comment</span>}
                                 </span>
-                                <span style={{ color: '#9ca3af', fontSize: '10px' }}>
+                                <span className={styles.logTimestamp}>
                                   {step.created_at ? new Date(step.created_at).toLocaleString() : ''}
                                 </span>
                               </div>
@@ -571,17 +590,17 @@ function ChalanDebugger() {
                           </div>
                         </div>
 
-                        {/* Stock Balance after the entire flow */}
-                        <div style={{ marginTop: 12 }}>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                        {/* Active Stock Remaining */}
+                        <div className={styles.activeStockBox}>
+                          <span className={styles.logTitle}>
                             Active Stock Remaining Right Now:
                           </span>
                           {renderHoldings(filteredSteps[filteredSteps.length - 1].holdings_after_step)}
                         </div>
                       </div>
                     ) : (
-                      <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                        No movements trace found.
+                      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '15px' }}>
+                        No movements trace found for this selection.
                       </div>
                     )}
                   </div>

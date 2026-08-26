@@ -68,12 +68,13 @@ def create_barcode_batch():
     created_barcodes = []
     
     # Determine starting number
+    start_number = 1
     if last_barcode and last_barcode.get('barcode_id'):
-        # Extract the last 4 digits from the previous barcode
-        last_number = int(last_barcode['barcode_id'][-4:])
-        start_number = last_number + 1
-    else:
-        start_number = 1
+        try:
+            last_number = int(str(last_barcode['barcode_id'])[-4:])
+            start_number = last_number + 1
+        except (ValueError, TypeError):
+            start_number = 1
 
     for i in range(quantity):
         barcode_id = f"{timestamp}{str(start_number + i).zfill(4)}"

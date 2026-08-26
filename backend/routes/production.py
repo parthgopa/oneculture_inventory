@@ -84,8 +84,8 @@ def compute_all_worker_stock():
 
     # Build a set of all known supplier names so we can exclude them from worker holdings
     supplier_names = set(
-        s['supplier_name'] for s in suppliers_collection.find({}, {'supplier_name': 1})
-        if s.get('supplier_name')
+        s.get('name') or s.get('supplier_name') for s in suppliers_collection.find({}, {'name': 1, 'supplier_name': 1})
+        if s.get('name') or s.get('supplier_name')
     )
     # Also collect supplier names from cloth orders (covers historical/renamed suppliers)
     for o in cloth_orders_collection.find({}, {'supplier_name': 1}):
@@ -105,8 +105,25 @@ def compute_all_worker_stock():
         }}
     ]
     result = list(work_ledger_collection.aggregate(pipeline))[0]
-    received_map = {(r['_id']['entity'], r['_id']['sku'], r['_id'].get('color') or '', r['_id'].get('order_id') or ''): r['total'] for r in result['received']}
-    sent_map = {(s['_id']['entity'], s['_id']['sku'], s['_id'].get('color') or '', s['_id'].get('order_id') or ''): s['total'] for s in result['sent']}
+    received_map = {}
+    for r in result['received']:
+        key = (
+            (r['_id'].get('entity') or '').strip(),
+            (r['_id'].get('sku') or '').strip(),
+            (r['_id'].get('color') or '').strip(),
+            (r['_id'].get('order_id') or '').strip()
+        )
+        received_map[key] = received_map.get(key, 0) + r['total']
+
+    sent_map = {}
+    for s in result['sent']:
+        key = (
+            (s['_id'].get('entity') or '').strip(),
+            (s['_id'].get('sku') or '').strip(),
+            (s['_id'].get('color') or '').strip(),
+            (s['_id'].get('order_id') or '').strip()
+        )
+        sent_map[key] = sent_map.get(key, 0) + s['total']
 
     # Get all unique order_ids to fetch chalan numbers
     all_order_ids = set()
@@ -141,6 +158,101 @@ def compute_all_worker_stock():
             })
     holdings.sort(key=lambda x: (x['worker_name'], x['sku_name'], x['color']))
     return holdings
+
+
+def sync_order_status(order_id):
+    """
+    Recalculate and synchronize items' statuses and the order's overall status
+    based on the current state of the work ledger.
+    """
+    if not order_id:
+        return
+    order = cloth_orders_collection.find_one({'order_id': order_id})
+    if not order:
+        return
+
+    entries = list(work_ledger_collection.find({'order_id': order_id}))
+    items = order.get('items', [])
+    if not items:
+        return
+
+    supplier_name = order.get('supplier_name', '')
+    updated_items = []
+    for item in items:
+        item_id = item.get('item_id')
+        sku_name = (item.get('sku_name') or '').strip()
+        color = (item.get('color') or '').strip()
+        qty_ordered = int(item.get('quantity_ordered') or 0)
+
+        # Filter entries for this specific item (match by item_id if present, else sku_name & color)
+        item_entries = [
+            e for e in entries
+            if (item_id and e.get('item_id') == item_id) or
+               (not item_id and (e.get('sku_name') or '').strip() == sku_name and ((e.get('color') or '').strip() == color or not color))
+        ]
+
+        # Total final received at company
+        final_received_qty = sum(
+            int(e.get('quantity') or 0)
+            for e in item_entries
+            if e.get('stage') == 'final_received' and e.get('to_entity') == 'company'
+        )
+
+        # Total assigned or transferred in work with workers
+        assigned_or_in_work = any(
+            e.get('stage') in ('job_assigned', 'transferred')
+            for e in item_entries
+        )
+
+        # Net worker holding
+        worker_inflow = sum(
+            int(e.get('quantity') or 0)
+            for e in item_entries
+            if e.get('to_entity') != 'company' and not (e.get('to_entity') or '').lower().startswith('supplier') and e.get('to_entity') != supplier_name
+        )
+        worker_outflow = sum(
+            int(e.get('quantity') or 0)
+            for e in item_entries
+            if e.get('from_entity') != 'company' and not (e.get('from_entity') or '').lower().startswith('supplier') and e.get('from_entity') != supplier_name
+        )
+        has_worker_pieces = (worker_inflow - worker_outflow) > 0
+
+        # Physical cloth received at company from supplier
+        cloth_received_qty = sum(
+            int(e.get('quantity') or 0)
+            for e in item_entries
+            if e.get('stage') == 'cloth_received' and e.get('to_entity') == 'company'
+        )
+
+        # Determine status
+        if qty_ordered > 0 and final_received_qty >= qty_ordered:
+            new_status = 'completed'
+        elif has_worker_pieces or assigned_or_in_work:
+            new_status = 'in_work'
+        elif cloth_received_qty > 0:
+            new_status = 'received'
+        else:
+            new_status = 'ordered'
+
+        item_copy = dict(item)
+        item_copy['status'] = new_status
+        item_copy['quantity_received'] = final_received_qty
+        updated_items.append(item_copy)
+
+    # Determine overall order status
+    if all(i.get('status') == 'completed' for i in updated_items):
+        new_order_status = 'completed'
+    elif any(i.get('status') == 'in_work' for i in updated_items):
+        new_order_status = 'in_work'
+    elif any(i.get('status') == 'received' for i in updated_items):
+        new_order_status = 'received'
+    else:
+        new_order_status = 'ordered'
+
+    cloth_orders_collection.update_one(
+        {'order_id': order_id},
+        {'$set': {'items': updated_items, 'status': new_order_status}}
+    )
 
 
 # ── Workers ───────────────────────────────────────────────────────────────────
@@ -191,6 +303,12 @@ def update_worker(worker_id):
         if not name:
             return jsonify({'error': 'Worker name is required'}), 400
 
+        worker = workers_collection.find_one({'worker_id': worker_id})
+        if not worker:
+            return jsonify({'error': 'Worker not found'}), 404
+
+        old_name = worker.get('name', '')
+
         existing = workers_collection.find_one({'name': name, 'active': True, 'worker_id': {'$ne': worker_id}})
         if existing:
             return jsonify({'error': f'Another worker named "{name}" already exists'}), 400
@@ -201,6 +319,13 @@ def update_worker(worker_id):
             'work_type': (data.get('work_type') or 'General').strip(),
         }
         workers_collection.update_one({'worker_id': worker_id}, {'$set': update_fields})
+
+        # Cascade worker rename to work_ledger and dead_stock
+        if old_name and name != old_name:
+            work_ledger_collection.update_many({'to_entity': old_name}, {'$set': {'to_entity': name}})
+            work_ledger_collection.update_many({'from_entity': old_name}, {'$set': {'from_entity': name}})
+            dead_stock_collection.update_many({'from_worker': old_name}, {'$set': {'from_worker': name}})
+
         updated = workers_collection.find_one({'worker_id': worker_id})
         return jsonify(serialize(updated)), 200
     except Exception as e:
@@ -408,17 +533,41 @@ def update_order(order_id):
                 item_id = item_data.get('item_id')
                 if item_id and item_id in existing_items:
                     item = dict(existing_items[item_id])
-                    if 'sku_name' in item_data:
-                        item['sku_name'] = (item_data['sku_name'] or '').strip()
+                    old_sku = item.get('sku_name', '')
+                    old_color = item.get('color', '')
+                    old_qty = item.get('quantity_ordered', 0)
+
+                    new_sku = (item_data['sku_name'] or '').strip() if 'sku_name' in item_data else old_sku
+                    new_color = (item_data['color'] or '').strip() if 'color' in item_data else old_color
+                    new_qty = int(item_data['quantity_ordered'] or 0) if 'quantity_ordered' in item_data else old_qty
+
+                    item['sku_name'] = new_sku
+                    item['color'] = new_color
+                    item['quantity_ordered'] = new_qty
                     if 'fabric_type' in item_data:
                         item['fabric_type'] = (item_data['fabric_type'] or '').strip()
-                    if 'color' in item_data:
-                        item['color'] = (item_data['color'] or '').strip()
-                    if 'quantity_ordered' in item_data:
-                        item['quantity_ordered'] = int(item_data['quantity_ordered'] or 0)
                     if 'mrp' in item_data:
                         item['mrp'] = float(item_data['mrp'] or 0)
                     updated_items.append(item)
+
+                    # Cascade item changes to work_ledger
+                    ledger_item_updates = {}
+                    if new_sku != old_sku:
+                        ledger_item_updates['sku_name'] = new_sku
+                    if new_color != old_color:
+                        ledger_item_updates['color'] = new_color
+                    if ledger_item_updates:
+                        work_ledger_collection.update_many(
+                            {'order_id': order_id, 'item_id': item_id},
+                            {'$set': ledger_item_updates}
+                        )
+
+                    # Update initial cloth_received quantity if quantity_ordered changed
+                    if new_qty != old_qty:
+                        work_ledger_collection.update_one(
+                            {'order_id': order_id, 'item_id': item_id, 'stage': 'cloth_received'},
+                            {'$set': {'quantity': new_qty}}
+                        )
                 else:
                     updated_items.append(existing_items.get(item_id, item_data))
             set_fields['items'] = updated_items
@@ -436,6 +585,7 @@ def update_order(order_id):
                 {'$set': {'from_entity': new_supplier}}
             )
 
+        sync_order_status(order_id)
         updated = cloth_orders_collection.find_one({'order_id': order_id})
         return jsonify(serialize(updated)), 200
     except Exception as e:
@@ -444,12 +594,13 @@ def update_order(order_id):
 
 @production_bp.route('/api/production/orders/<order_id>', methods=['DELETE'])
 def delete_order(order_id):
-    """Delete a cloth order and all its associated ledger entries."""
+    """Delete a cloth order and all its associated ledger and dead stock entries."""
     try:
         order = cloth_orders_collection.find_one({'order_id': order_id})
         if not order:
             return jsonify({'error': 'Order not found'}), 404
         work_ledger_collection.delete_many({'order_id': order_id})
+        dead_stock_collection.delete_many({'order_id': order_id})
         cloth_orders_collection.delete_one({'order_id': order_id})
         return jsonify({'message': f'Order {order_id} and its ledger entries deleted'}), 200
     except Exception as e:
@@ -524,7 +675,7 @@ def receive_cloth(order_id):
             })
             updated += 1
 
-        cloth_orders_collection.update_one({'order_id': order_id}, {'$set': {'status': 'received'}})
+        sync_order_status(order_id)
         return jsonify({'message': f'Cloth received for {updated} item(s)'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -548,6 +699,14 @@ def assign_job_work():
 
         if not worker_name or quantity <= 0 or not sku_name:
             return jsonify({'error': 'Worker name, SKU, and quantity are required'}), 400
+
+        # Auto-resolve item_id if missing but order_id is provided
+        if not item_id and order_id and sku_name:
+            order = cloth_orders_collection.find_one({'order_id': order_id})
+            if order:
+                item = next((i for i in order.get('items', []) if i.get('sku_name') == sku_name and (not color or i.get('color') == color)), None)
+                if item:
+                    item_id = item.get('item_id', '')
 
         # Find which supplier has this SKU
         supplier_with_sku = None
@@ -579,15 +738,6 @@ def assign_job_work():
                 'error': f'Supplier "{supplier_with_sku}" only has {available} pieces of "{sku_name}" available to assign'
             }), 400
 
-        if order_id and item_id:
-            cloth_orders_collection.update_one(
-                {'order_id': order_id, 'items.item_id': item_id},
-                {'$set': {'items.$.status': 'in_work'}}
-            )
-            cloth_orders_collection.update_one(
-                {'order_id': order_id}, {'$set': {'status': 'in_work'}}
-            )
-
         date_str = (data.get('date') or '').strip()
         entry_date = datetime.now()
         if date_str:
@@ -609,6 +759,10 @@ def assign_job_work():
             'notes': notes,
             'created_at': entry_date
         })
+
+        if order_id:
+            sync_order_status(order_id)
+
         return jsonify({'message': f'Assigned {quantity} pieces of "{sku_name}" to {worker_name}'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -672,6 +826,10 @@ def transfer_work():
             'notes': notes,
             'created_at': entry_date
         })
+
+        if order_id:
+            sync_order_status(order_id)
+
         color_msg = f' ({color})' if color else ''
         return jsonify({'message': f'Transferred {quantity} pieces of "{sku_name}"{color_msg} from {from_worker} to {to_worker}'}), 201
     except Exception as e:
@@ -735,33 +893,8 @@ def receive_final():
             'created_at': entry_date
         })
 
-        if order_id and item_id:
-            # Check if this is the final receive for the full quantity
-            order = cloth_orders_collection.find_one({'order_id': order_id})
-            if order:
-                item = next((i for i in order.get('items', []) if i.get('item_id') == item_id), None)
-                if item:
-                    # Calculate total received for this item
-                    total_received = work_ledger_collection.aggregate([
-                        {'$match': {
-                            'order_id': order_id,
-                            'item_id': item_id,
-                            'stage': 'final_received',
-                            'to_entity': 'company'
-                        }},
-                        {'$group': {
-                            '_id': None,
-                            'total': {'$sum': '$quantity'}
-                        }}
-                    ])
-                    total_received = list(total_received)[0]['total'] if total_received else 0
-                    
-                    # Only mark as completed if full quantity received
-                    if total_received >= item.get('quantity_ordered', 0):
-                        cloth_orders_collection.update_one(
-                            {'order_id': order_id, 'items.item_id': item_id},
-                            {'$set': {'items.$.status': 'completed'}}
-                        )
+        if order_id:
+            sync_order_status(order_id)
 
         return jsonify({
             'message': f'Received {quantity} finished pieces of "{sku_name}" from {worker_name}',
@@ -823,6 +956,10 @@ def return_to_supplier():
             'notes': notes or f'Returned to {supplier}',
             'created_at': created_at
         })
+
+        if order_id:
+            sync_order_status(order_id)
+
         color_msg = f' ({color})' if color else ''
         return jsonify({'message': f'Returned {quantity} pieces of "{sku_name}"{color_msg} from {from_entity} to {supplier}'}), 201
     except Exception as e:
@@ -915,6 +1052,9 @@ def return_defective():
                 'reason': reason,
                 'created_at': created_at
             })
+
+        if order_id:
+            sync_order_status(order_id)
 
         color_msg = f' ({color})' if color else ''
         destination_msg = 'Dead Stock' if to_entity.lower() == 'company' else to_entity
@@ -1163,39 +1303,8 @@ def receive_final_bulk():
                 'mrp': mrp
             })
 
-            # Check if this item is fully completed
-            if item_id:
-                total_received_agg = list(work_ledger_collection.aggregate([
-                    {'$match': {
-                        'order_id': order_id,
-                        'item_id': item_id,
-                        'stage': 'final_received',
-                        'to_entity': 'company'
-                    }},
-                    {'$group': {'_id': None, 'total': {'$sum': '$quantity'}}}
-                ]))
-                total_received = total_received_agg[0]['total'] if total_received_agg else 0
-                
-                # Get the order item quantity
-                order_item = next((i for i in order.get('items', []) if i.get('item_id') == item_id), None)
-                if order_item and total_received >= order_item.get('quantity_ordered', 0):
-                    cloth_orders_collection.update_one(
-                        {'order_id': order_id, 'items.item_id': item_id},
-                        {'$set': {'items.$.status': 'completed'}}
-                    )
-
-        # Update order-level status if all items are completed
-        updated_order = cloth_orders_collection.find_one({'order_id': order_id})
-        if updated_order:
-            all_completed = all(
-                item.get('status') == 'completed'
-                for item in updated_order.get('items', [])
-            )
-            if all_completed:
-                cloth_orders_collection.update_one(
-                    {'order_id': order_id},
-                    {'$set': {'status': 'completed'}}
-                )
+        if order_id:
+            sync_order_status(order_id)
 
         if errors:
             return jsonify({
@@ -1329,6 +1438,9 @@ def transfer_bulk():
                 'to_worker': to_worker
             })
 
+        if order_id:
+            sync_order_status(order_id)
+
         if errors and not results:
             return jsonify({'error': 'No items could be transferred', 'errors': errors}), 400
 
@@ -1368,24 +1480,59 @@ def update_ledger_date(ledger_id):
 def revert_ledger_entry(ledger_id):
     """
     Revert a ledger entry by DELETING it from the ledger.
-    No counter-entry is created - the entry is simply removed.
-    Stock calculations will automatically reflect the removal.
+    Cleans up any linked dead_stock records and re-syncs cloth order item statuses.
     """
     try:
         original = work_ledger_collection.find_one({'ledger_id': ledger_id})
         if not original:
             return jsonify({'error': 'Ledger entry not found'}), 404
 
-        # Simply delete the entry - stock will be recalculated automatically
+        to_entity = (original.get('to_entity') or '').strip()
+        quantity = int(original.get('quantity') or 0)
+        sku_name = original.get('sku_name')
+        color = original.get('color')
+        order_id = original.get('order_id')
+
+        # If this entry gave pieces to a worker, make sure that worker has not already transferred/delivered them
+        if to_entity and to_entity.lower() != 'company' and not to_entity.lower().startswith('supplier'):
+            current_holding = get_entity_holding(to_entity, sku_name=sku_name, color=color, order_id=order_id or None)
+            if current_holding < quantity:
+                return jsonify({
+                    'error': (
+                        f'Cannot revert this entry: {to_entity} only has {current_holding} pieces of "{sku_name}" '
+                        f'available, but this entry provided {quantity} pieces. '
+                        f'Please revert subsequent transfers or finished receipts from {to_entity} first.'
+                    )
+                }), 400
+
+        # Delete the entry - stock will be recalculated automatically
         result = work_ledger_collection.delete_one({'ledger_id': ledger_id})
         
         if result.deleted_count > 0:
+            # Clean up dead stock if this was a defective return to company
+            if original.get('stage') == 'returned_defective' and (original.get('to_entity') or '').lower() == 'company':
+                dead_stock_query = {
+                    'sku_name': original.get('sku_name'),
+                    'from_worker': original.get('from_entity'),
+                    'quantity': original.get('quantity')
+                }
+                if original.get('order_id'):
+                    dead_stock_query['order_id'] = original['order_id']
+                if original.get('color'):
+                    dead_stock_query['color'] = original['color']
+                dead_stock_collection.delete_one(dead_stock_query)
+
+            # Re-sync cloth order & item statuses
+            if order_id:
+                sync_order_status(order_id)
+
             return jsonify({
                 'message': f'Entry {ledger_id} deleted',
                 'sku_name': original.get('sku_name'),
                 'quantity': original.get('quantity'),
                 'from_entity': original.get('from_entity'),
-                'to_entity': original.get('to_entity')
+                'to_entity': original.get('to_entity'),
+                'order_id': order_id
             }), 200
         else:
             return jsonify({'error': 'Failed to delete entry'}), 500
@@ -1713,8 +1860,27 @@ def get_worker_history(worker_name):
         ]))[0]
 
         # Build maps with (sku, color, order_id) tuple keys
-        rcv_map  = {(r['_id']['sku'], r['_id'].get('color') or '', r['_id'].get('order_id') or ''): {'n': r['n'], 'last_date': r.get('last_date')} for r in facet['received']}
-        snt_map  = {(s['_id']['sku'], s['_id'].get('color') or '', s['_id'].get('order_id') or ''): s['n'] for s in facet['sent']}
+        rcv_map = {}
+        for r in facet['received']:
+            key = (
+                (r['_id'].get('sku') or '').strip(),
+                (r['_id'].get('color') or '').strip(),
+                (r['_id'].get('order_id') or '').strip()
+            )
+            if key not in rcv_map:
+                rcv_map[key] = {'n': 0, 'last_date': r.get('last_date')}
+            rcv_map[key]['n'] += r['n']
+            if r.get('last_date') and (not rcv_map[key]['last_date'] or r['last_date'] > rcv_map[key]['last_date']):
+                rcv_map[key]['last_date'] = r['last_date']
+
+        snt_map = {}
+        for s in facet['sent']:
+            key = (
+                (s['_id'].get('sku') or '').strip(),
+                (s['_id'].get('color') or '').strip(),
+                (s['_id'].get('order_id') or '').strip()
+            )
+            snt_map[key] = snt_map.get(key, 0) + s['n']
         all_keys = set(rcv_map) | set(snt_map)
 
         # Fetch chalan numbers for all relevant order_ids
@@ -1812,6 +1978,20 @@ def repair_sync_supplier_names():
         return jsonify({'error': str(e)}), 500
 
 
+@production_bp.route('/api/production/repair/sync-all-order-statuses', methods=['POST'])
+def repair_sync_all_order_statuses():
+    """Recalculate and synchronize statuses for all cloth orders in the database."""
+    try:
+        orders = list(cloth_orders_collection.find({}, {'order_id': 1}))
+        count = 0
+        for o in orders:
+            sync_order_status(o['order_id'])
+            count += 1
+        return jsonify({'message': f'Synchronized statuses for {count} orders'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Suppliers ─────────────────────────────────────────────────────────────────
 
 @production_bp.route('/api/production/suppliers', methods=['GET'])
@@ -1856,13 +2036,41 @@ def update_supplier(supplier_id):
         company_name = (data.get('company_name') or '').strip()
         if not name:
             return jsonify({'error': 'Supplier name is required'}), 400
+
+        supplier = suppliers_collection.find_one({'supplier_id': supplier_id})
+        if not supplier:
+            return jsonify({'error': 'Supplier not found'}), 404
+
+        old_name = supplier.get('name', '')
+
         conflict = suppliers_collection.find_one({'name': name, 'active': True, 'supplier_id': {'$ne': supplier_id}})
         if conflict:
             return jsonify({'error': f'Another supplier named "{name}" already exists'}), 409
+
         suppliers_collection.update_one(
             {'supplier_id': supplier_id},
             {'$set': {'name': name, 'company_name': company_name}}
         )
+
+        # Cascade supplier rename to cloth_orders, work_ledger, and sku_catalog
+        if old_name and name != old_name:
+            cloth_orders_collection.update_many(
+                {'supplier_name': old_name},
+                {'$set': {'supplier_name': name}}
+            )
+            work_ledger_collection.update_many(
+                {'to_entity': old_name},
+                {'$set': {'to_entity': name}}
+            )
+            work_ledger_collection.update_many(
+                {'from_entity': old_name},
+                {'$set': {'from_entity': name}}
+            )
+            sku_catalog_collection.update_many(
+                {'supplier_name': old_name},
+                {'$set': {'supplier_name': name}}
+            )
+
         updated = suppliers_collection.find_one({'supplier_id': supplier_id})
         return jsonify(serialize(updated)), 200
     except Exception as e:
@@ -1890,10 +2098,15 @@ def get_supplier_holdings(supplier_name):
             {'$match': {'from_entity': supplier_name}},
             {'$group': {'_id': {'sku': '$sku_name', 'color': '$color'}, 'total': {'$sum': '$quantity'}}}
         ]
-        in_map = {(r['_id']['sku'], r['_id'].get('color') or ''): r['total']
-                  for r in work_ledger_collection.aggregate(pipeline_in)}
-        out_map = {(r['_id']['sku'], r['_id'].get('color') or ''): r['total']
-                   for r in work_ledger_collection.aggregate(pipeline_out)}
+        in_map = {}
+        for r in work_ledger_collection.aggregate(pipeline_in):
+            k = ((r['_id'].get('sku') or '').strip(), (r['_id'].get('color') or '').strip())
+            in_map[k] = in_map.get(k, 0) + r['total']
+
+        out_map = {}
+        for r in work_ledger_collection.aggregate(pipeline_out):
+            k = ((r['_id'].get('sku') or '').strip(), (r['_id'].get('color') or '').strip())
+            out_map[k] = out_map.get(k, 0) + r['total']
 
         all_keys = set(list(in_map.keys()) + list(out_map.keys()))
         current_holdings = []

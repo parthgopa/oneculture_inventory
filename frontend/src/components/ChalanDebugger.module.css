@@ -1,0 +1,495 @@
+.container {
+  padding: 24px 32px;
+  max-width: 1680px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.pageHeader {
+  margin-bottom: 24px;
+}
+
+.pageTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary, #0f172a);
+  letter-spacing: -0.02em;
+}
+
+.pageSubtitle {
+  margin: 6px 0 0 0;
+  font-size: 14px;
+  color: var(--text-secondary, #64748b);
+}
+
+/* ── Control / Search Card ── */
+.controlCard {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  padding: 18px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.controlRow {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.controlGroup {
+  flex: 1;
+  min-width: 280px;
+}
+
+.controlLabel {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: block;
+  color: var(--text-primary, #1e293b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.selectInput, .textInput {
+  width: 100%;
+  height: 44px;
+  padding: 8px 14px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border-color, #cbd5e1);
+  background-color: var(--input-bg, #ffffff);
+  color: var(--text-primary, #0f172a);
+  transition: all 0.2s ease;
+}
+
+.selectInput:focus, .textInput:focus {
+  border-color: var(--primary-color, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  outline: none;
+}
+
+.searchBtn {
+  height: 44px;
+  padding: 0 24px;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+}
+
+/* ── Overview Stats Card ── */
+.statsCard {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-left: 5px solid var(--primary-color, #6366f1);
+  border-radius: 12px;
+  padding: 20px 28px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.statItem {
+  display: flex;
+  flex-direction: column;
+}
+
+.statLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.statValue {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.chalanBadge {
+  color: #dc2626;
+  font-weight: 800;
+  margin-left: 6px;
+}
+
+/* ── SKU / Person Filter Toolbar ── */
+.toolbarCard {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 24px;
+  margin-bottom: 20px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toolbarGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolbarLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  margin: 0;
+}
+
+.toolbarSelect {
+  min-width: 260px;
+  height: 40px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1.5px solid #cbd5e1;
+  background-color: #ffffff;
+}
+
+/* ── Trace Banner (Selected SKU) ── */
+.traceBanner {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1.5px solid #fcd34d;
+  border-radius: 12px;
+  padding: 18px 24px;
+  box-shadow: 0 2px 5px rgba(245, 158, 11, 0.1);
+}
+
+.traceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.traceTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #78350f;
+}
+
+.traceMetaList {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+  font-size: 13.5px;
+  color: #92400e;
+  flex-wrap: wrap;
+}
+
+.traceMetaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.backBtn {
+  background: #ffffff;
+  border: 1.5px solid #d97706;
+  color: #92400e;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.backBtn:hover {
+  background: #fef3c7;
+  border-color: #b45309;
+}
+
+/* ── Audit Person Summary ── */
+.personAuditCard {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1.5px solid #86efac;
+  border-radius: 12px;
+  padding: 18px 24px;
+  box-shadow: 0 2px 4px rgba(22, 101, 52, 0.05);
+}
+
+.personAuditTitle {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #166534;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.personAuditGrid {
+  display: flex;
+  gap: 32px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+/* ── Visual Flow Map Card ── */
+.flowCard {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.flowHeader {
+  margin-bottom: 20px;
+}
+
+.flowTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary, #0f172a);
+}
+
+.flowSubtitle {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+}
+
+/* ── The Station Track ── */
+.trackContainer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px 14px;
+  background-color: #f8fafc;
+  padding: 24px 20px;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  justify-content: flex-start;
+}
+
+.startStation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  background-color: #ffffff;
+  border: 2px solid #64748b;
+  border-radius: 10px;
+  min-width: 140px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.stationSubLabel {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stationName {
+  font-size: 15px;
+  font-weight: 800;
+  margin-top: 4px;
+}
+
+.stepConnection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.arrowBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 130px;
+  position: relative;
+}
+
+.quantityPill {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 16px;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  z-index: 2;
+}
+
+.stageLabel {
+  font-size: 10.5px;
+  font-weight: 800;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.arrowLine {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.lineBar {
+  flex: 1;
+  height: 3px;
+  background-color: #94a3b8;
+  border-radius: 2px;
+}
+
+.arrowHead {
+  color: #94a3b8;
+  font-size: 13px;
+  margin-left: -4px;
+  margin-top: -6px;
+}
+
+.stationBubble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  border-radius: 10px;
+  min-width: 140px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+/* ── Logs & Active Holdings ── */
+.logBox {
+  margin-top: 20px;
+  background-color: #f8fafc;
+  border-radius: 10px;
+  padding: 16px 20px;
+  border: 1.5px solid #e2e8f0;
+}
+
+.logTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-secondary, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.logRow {
+  font-size: 13.5px;
+  color: #334155;
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.logRow:last-child {
+  border-bottom: none;
+}
+
+.logTimestamp {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.activeStockBox {
+  margin-top: 20px;
+}
+
+.holdingBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── All SKUs Table View ── */
+.allSkusCard {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.allSkusHeader {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  background-color: #f8fafc;
+}
+
+.allSkusTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1e293b;
+}
+
+.allSkusTable {
+  width: 100%;
+  font-size: 14px;
+}
+
+.allSkusTable th {
+  padding: 14px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: #f8fafc;
+  color: #64748b;
+  border-bottom: 1.5px solid #e2e8f0;
+}
+
+.allSkusTable td {
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.traceActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 6px;
+}

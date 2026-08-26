@@ -3,11 +3,11 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { apiFetch } from '../config'
 import { getSettings } from './Settings'
-import { 
-  MdDashboard, 
-  MdQrCodeScanner, 
-  MdInventory, 
-  MdQrCode2, 
+import {
+  MdDashboard,
+  MdQrCodeScanner,
+  MdInventory,
+  MdQrCode2,
   MdLogout,
   MdMenu,
   MdClose,
@@ -26,10 +26,10 @@ const NAV_ITEMS = [
   { path: '/scanner', label: 'Scanner', icon: MdQrCodeScanner },
   { path: '/inventory', label: 'Inventory', icon: MdInventory },
   { path: '/production', label: 'Production', icon: MdBuild },
-  { path: '/tracker', label: 'Prod. Tracker', icon: MdTimeline },
+  // { path: '/tracker', label: 'Prod. Tracker', icon: MdTimeline },
   { path: '/skus', label: 'SKU Catalog', icon: MdLabel },
   { path: '/general-ledger', label: 'General Ledger', icon: MdBook },
-  { path: '/chalan-debugger', label: 'Chalan Debugger', icon: MdBugReport },
+  { path: '/chalan-debugger', label: 'Chalan TRACKER', icon: MdBugReport },
   // { path: '/generator', label: 'Generate Barcodes', icon: MdQrCode2 },
   { path: '/alerts', label: 'Alerts', icon: MdNotifications, badge: true },
   { path: '/settings', label: 'Settings', icon: MdSettings },
@@ -71,7 +71,7 @@ function Sidebar() {
       setIsMobile(mobile)
       if (!mobile) setIsOpen(false) // Close mobile menu on desktop
     }
-    
+
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
@@ -91,18 +91,18 @@ function Sidebar() {
       {/* Mobile Header */}
       {isMobile && (
         <header className={styles.mobileHeader}>
-          <button 
+          <button
             className={styles.menuBtn}
             onClick={() => setIsOpen(!isOpen)}
             aria-label="Toggle menu"
           >
             {isOpen ? <MdClose size={24} /> : <MdMenu size={24} />}
           </button>
-          
+
           <div className={styles.mobileLogo}>
             <img src="/logo.jpeg" alt="OneCulture" style={{ height: '32px', objectFit: 'contain' }} />
           </div>
-          
+
           <div style={{ width: 40 }} /> {/* Spacer for centering */}
         </header>
       )}
@@ -125,7 +125,7 @@ function Sidebar() {
             <NavLink
               key={path}
               to={path}
-              className={({ isActive }) => 
+              className={({ isActive }) =>
                 `${styles.navItem} ${isActive ? styles.active : ''}`
               }
               onClick={handleNavClick}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { MdCheckCircle, MdArrowForward, MdWarning, MdInbox } from 'react-icons/md'
 import { apiFetch } from '../../config'
 import { Badge, Modal, FormRow, STAGE_LABELS, STAGE_COLORS, EditableDateCell, RevertButton } from './helpers'
+import WorkerHoldingsMasterDetail from './WorkerHoldingsMasterDetail'
 import styles from './AdditionalWork.module.css'
 
 function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
@@ -14,6 +15,30 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
   const [receiveForm, setReceiveForm] = useState({
     worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: today, order_id: '', item_id: ''
   })
+
+  const openReceive = (itemData = null) => {
+    if (itemData && typeof itemData === 'object' && itemData.workerName) {
+      const isBulk = Boolean(itemData.bulk)
+      setBulkReceive(isBulk)
+      setReceiveForm({
+        worker_name: itemData.workerName || '',
+        sku_name: isBulk ? '' : (itemData.skuName || ''),
+        color: isBulk ? '' : (itemData.color || ''),
+        quantity: isBulk ? '' : (itemData.quantity || ''),
+        mrp: '',
+        notes: '',
+        date: today,
+        order_id: itemData.orderId || '',
+        item_id: ''
+      })
+    } else {
+      setBulkReceive(false)
+      setReceiveForm({
+        worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: today, order_id: '', item_id: ''
+      })
+    }
+    setModal(true)
+  }
 
   // Fetch MRP when SKU and Color are selected
   useEffect(() => {
@@ -93,74 +118,26 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
         <button
           className="btn btn-outline"
           style={{ borderColor: 'var(--success-color)', color: 'var(--success-color)' }}
-          onClick={() => { setReceiveForm({ worker_name: '', sku_name: '', color: '', quantity: '', mrp: '', notes: '', date: today, order_id: '', item_id: '' }); setModal(true) }}
+          onClick={() => openReceive()}
         >
           <MdCheckCircle size={17} /> Receive Finished Goods
         </button>
       </div>
 
-      {/* Worker holdings summary */}
-      {workerStock.length > 0 ? (
-        <div className={styles.workerGrid} style={{ marginBottom: 24 }}>
-          {Object.entries(
-            workerStock.reduce((acc, ws) => {
-              if (!acc[ws.worker_name]) acc[ws.worker_name] = []
-              acc[ws.worker_name].push(ws)
-              return acc
-            }, {})
-          ).map(([workerName, items]) => (
-            <div key={workerName} className={styles.workerCard}>
-              <div className={styles.workerCardHeader}>
-                <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
-                <div>
-                  <div className={styles.workerName}>{workerName}</div>
-                  <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces in hand</div>
-                </div>
-              </div>
-              {/* Group by order_id */}
-              {Object.entries(items.reduce((acc, item) => {
-                const oid = item.order_id || 'Other'
-                if (!acc[oid]) acc[oid] = []
-                acc[oid].push(item)
-                return acc
-              }, {})).map(([orderId, orderItems]) => {
-                // Get chalan number from orders
-                const order = orders.find(o => o.order_id === orderId)
-                const chalanNumber = order?.chalan_number || ''
-                return (
-                  <div key={orderId} style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6, border: '1px solid var(--border-color, #e5e7eb)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      {chalanNumber && (
-                        <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>
-                          # ({chalanNumber})
-                        </span>
-                      )}
-                      <span style={{ color: 'var(--text-primary)' }}>
-                        {orderId.startsWith('ORD') ? orderId : 'Other'}
-                      </span>
-                      <span style={{ color: '#6366f1', fontWeight: 400 }}>({orderSupplierMap[orderId] || '—'})</span>
-                    </div>
-                    {orderItems.map((item, idx) => (
-                      <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
-                        <span>{item.sku_name}{item.color ? <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({item.color})</span> : ''}</span>
-                        <span className="badge badge-warning">{item.quantity}</span>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="empty-state" style={{ padding: 40 }}>
-            <div className="empty-state-icon"><MdInbox size={52} /></div>
-            <div className="empty-state-title">No pieces held by workers</div>
-            <div className="empty-state-description">Assign cloth via Job Work first, then receive finished goods here.</div>
-          </div>
-        </div>
-      )}
+      {/* Master-Detail Worker Holdings */}
+      <WorkerHoldingsMasterDetail
+        workerStock={workerStock}
+        workers={workers}
+        orders={orders}
+        emptyTitle="No pieces held by workers"
+        emptyDescription="Assign cloth via Job Work first, then receive finished goods here."
+        onItemAction={(itemData) => openReceive(itemData)}
+        itemActionLabel="Receive"
+        itemActionColor="var(--success-color, #10b981)"
+        onChalanAction={(chalanData) => openReceive(chalanData)}
+        chalanActionLabel="Receive Whole Chalan"
+        chalanActionColor="var(--success-color, #10b981)"
+      />
 
       {/* Final receive ledger */}
       <div className="card">
@@ -218,10 +195,22 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
           </p>
           <FormRow label="Worker" required>
             <select className="form-input" value={receiveForm.worker_name}
-              onChange={e => setReceiveForm(p => ({ ...p, worker_name: e.target.value, sku_name: '', color: '' }))}>
+              onChange={e => {
+                const w = e.target.value
+                setReceiveForm(p => ({
+                  ...p,
+                  worker_name: w,
+                  order_id: '',
+                  item_id: '',
+                  sku_name: '',
+                  color: '',
+                  quantity: '',
+                  mrp: ''
+                }))
+              }}>
               <option value="">Select Worker...</option>
-              {workers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
-                .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {[...new Set(workerStock.filter(ws => ws.quantity > 0).map(ws => ws.worker_name))].sort()
+                .map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </FormRow>
           {receiveForm.worker_name && workerStock.filter(ws => ws.worker_name === receiveForm.worker_name).length > 0 && (
@@ -268,12 +257,23 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
                     </div>
                   )
                 })
-              })()} {/* <--- FIXED: Added () here to invoke the function */}
+              })()}
             </div>
           )}
           <FormRow label="Order ID / Chalan Number" required>
             <select className="form-input" value={receiveForm.order_id}
-              onChange={e => setReceiveForm(p => ({ ...p, order_id: e.target.value, sku_name: '', color: '', bulkReceive: false }))}>
+              onChange={e => {
+                const oid = e.target.value
+                setReceiveForm(p => ({
+                  ...p,
+                  order_id: oid,
+                  item_id: '',
+                  sku_name: '',
+                  color: '',
+                  quantity: '',
+                  mrp: ''
+                }))
+              }}>
               <option value="">Select Order...</option>
               {receiveForm.worker_name
                 ? [...new Set(workerStock
@@ -305,62 +305,54 @@ function ReceiveGoods({ workers, workerStock, ledger, orders, onRefresh }) {
           </FormRow>
 
           {/* Highlighted Bulk Receive Checkbox */}
-          {receiveForm.worker_name && receiveForm.order_id && (() => {
-            const orderHoldings = workerStock.filter(ws =>
-              ws.worker_name === receiveForm.worker_name &&
-              ws.order_id === receiveForm.order_id &&
-              ws.quantity > 0
-            )
-            const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
-            return uniqueSkus.length > 1
-          })() && (
-              <div style={{
-                backgroundColor: '#fef3c7',
-                border: '2px solid #f59e0b',
-                borderRadius: '8px',
-                padding: '12px',
-                marginBottom: '16px'
+          {receiveForm.worker_name && receiveForm.order_id && (
+            <div style={{
+              backgroundColor: '#fef3c7',
+              border: '2px solid #f59e0b',
+              borderRadius: '8px',
+              padding: '12px',
+              marginBottom: '16px'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                color: '#92400e'
               }}>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  color: '#92400e'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={bulkReceive}
-                    onChange={e => setBulkReceive(e.target.checked)}
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      cursor: 'pointer'
-                    }}
-                  />
-                  <span style={{ fontSize: '14px' }}>
-                    🚀 RECEIVE ALL SKUs for this order ({(() => {
-                      const orderHoldings = workerStock.filter(ws =>
-                        ws.worker_name === receiveForm.worker_name &&
-                        ws.order_id === receiveForm.order_id &&
-                        ws.quantity > 0
-                      )
-                      const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
-                      return uniqueSkus.length
-                    })()} different SKUs)
-                  </span>
-                </label>
-                <p style={{
-                  margin: '8px 0 0 0',
-                  fontSize: '12px',
-                  color: '#78350f',
-                  paddingLeft: '26px'
-                }}>
-                  This will receive all items from this order at once, saving you time!
-                </p>
-              </div>
-            )}
+                <input
+                  type="checkbox"
+                  checked={bulkReceive}
+                  onChange={e => setBulkReceive(e.target.checked)}
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    cursor: 'pointer'
+                  }}
+                />
+                <span style={{ fontSize: '14px' }}>
+                  🚀 RECEIVE ALL SKUs for this order ({(() => {
+                    const orderHoldings = workerStock.filter(ws =>
+                      ws.worker_name === receiveForm.worker_name &&
+                      ws.order_id === receiveForm.order_id &&
+                      ws.quantity > 0
+                    )
+                    const totalPcs = orderHoldings.reduce((sum, item) => sum + item.quantity, 0)
+                    return `${totalPcs} pieces`
+                  })()})
+                </span>
+              </label>
+              <p style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: '#78350f',
+                paddingLeft: '26px'
+              }}>
+                This will receive all items from this order at once, saving you time!
+              </p>
+            </div>
+          )}
 
           {/* Show note and calculate totals when bulk receive is selected */}
           {bulkReceive && receiveForm.worker_name && receiveForm.order_id && (() => {

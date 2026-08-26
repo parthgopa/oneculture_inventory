@@ -48,9 +48,11 @@ def ensure_indexes():
     barcodes_collection.create_index([('sku_name', ASCENDING), ('company_name', ASCENDING)])
     barcodes_collection.create_index('batch_id')
     
-    # Scan events - critical for fast stock calculation
+    # Scan events - critical for fast stock calculation and analytics
     scan_events_collection.create_index([('barcode_id', ASCENDING), ('timestamp', DESCENDING)])
     scan_events_collection.create_index([('barcode_id', ASCENDING), ('action_type', ASCENDING)])
+    scan_events_collection.create_index([('action_type', ASCENDING), ('sku_name', ASCENDING)])
+    scan_events_collection.create_index([('action_type', ASCENDING), ('timestamp', DESCENDING)])
     scan_events_collection.create_index('timestamp')
     
     # Alerts - fast lookup for unresolved alerts
@@ -62,8 +64,10 @@ def ensure_indexes():
     
     # Production workflow
     cloth_orders_collection.create_index('order_id', unique=True)
-    cloth_orders_collection.create_index('status')
+    cloth_orders_collection.create_index([('status', ASCENDING), ('created_at', DESCENDING)])
+    cloth_orders_collection.create_index('items.sku_name')
     work_ledger_collection.create_index('order_id')
+    work_ledger_collection.create_index([('from_entity', ASCENDING), ('to_entity', ASCENDING), ('sku_name', ASCENDING)])
     work_ledger_collection.create_index([('from_entity', ASCENDING), ('sku_name', ASCENDING)])
     work_ledger_collection.create_index([('to_entity', ASCENDING), ('sku_name', ASCENDING)])
     workers_collection.create_index('worker_id', unique=True)

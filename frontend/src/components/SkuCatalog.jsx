@@ -1,10 +1,62 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../config'
 import {
   MdAdd, MdEdit, MdDelete, MdSearch, MdImage, MdClose,
   MdCheckCircle, MdWarning, MdLabel
 } from 'react-icons/md'
 import ImageUpload from './ImageUpload'
+
+function SkuThumbnail({ sku, imageCache, onImageLoaded, onPreview }) {
+  const [loading, setLoading] = useState(false)
+  const cachedImg = imageCache[sku.sku_name]
+
+  useEffect(() => {
+    if (!sku.has_image || cachedImg !== undefined) return
+    let active = true
+    setLoading(true)
+    apiFetch(`/api/skus/${encodeURIComponent(sku.sku_name)}/image`)
+      .then(res => res.json())
+      .then(data => {
+        if (active) {
+          onImageLoaded(sku.sku_name, data.image || null)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          onImageLoaded(sku.sku_name, null)
+          setLoading(false)
+        }
+      })
+
+    return () => { active = false }
+  }, [sku.sku_name, sku.has_image, cachedImg, onImageLoaded])
+
+  if (!sku.has_image) {
+    return (
+      <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border-color)' }}>
+        <MdImage size={20} style={{ color: 'var(--text-secondary)' }} />
+      </div>
+    )
+  }
+
+  if (cachedImg) {
+    return (
+      <img
+        src={cachedImg}
+        alt={sku.sku_name}
+        style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border-color)', transition: 'opacity 0.2s ease-in' }}
+        onClick={() => onPreview(cachedImg)}
+      />
+    )
+  }
+
+  return (
+    <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-color)' }} title="Loading image...">
+      <div className="loading" style={{ width: 18, height: 18, borderWidth: 2 }} />
+    </div>
+  )
+}
 
 function SkuCatalog() {
   const [skus, setSkus]           = useState([])
@@ -17,6 +69,11 @@ function SkuCatalog() {
   const [error, setError]         = useState(null)
   const [success, setSuccess]     = useState(null)
   const [previewImg, setPreviewImg] = useState(null)
+  const [imageCache, setImageCache] = useState({})
+
+  const handleImageLoaded = useCallback((skuName, imgData) => {
+    setImageCache(prev => ({ ...prev, [skuName]: imgData }))
+  }, [])
 
   useEffect(() => { fetchSkus() }, [])
 
@@ -41,18 +98,32 @@ function SkuCatalog() {
     setModal('create')
   }
 
-  const openEdit = (sku) => {
+  const openEdit = async (sku) => {
     setSelected(sku)
+    const existingImg = imageCache[sku.sku_name] || sku.image || null
     setForm({
       sku_name: sku.sku_name,
       description: sku.description || '',
-      image: sku.image || null,
+      image: existingImg,
       color: sku.color || '',
       fabric: sku.fabric || '',
       mrp: sku.mrp != null ? String(sku.mrp) : '',
     })
     setError(null)
     setModal('edit')
+
+    if (sku.has_image && !existingImg) {
+      try {
+        const res = await apiFetch(`/api/skus/${encodeURIComponent(sku.sku_name)}/image`)
+        if (res.ok) {
+          const d = await res.json()
+          if (d.image) {
+            setForm(p => ({ ...p, image: d.image }))
+            setImageCache(prev => ({ ...prev, [sku.sku_name]: d.image }))
+          }
+        }
+      } catch { /* ignore */ }
+    }
   }
 
   const openDelete = (sku) => { setSelected(sku); setModal('delete') }
@@ -75,6 +146,9 @@ function SkuCatalog() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
+      if (form.image) {
+        setImageCache(prev => ({ ...prev, [form.sku_name.trim()]: form.image }))
+      }
       flash('SKU created')
       closeModal()
       fetchSkus()
@@ -83,9 +157,12 @@ function SkuCatalog() {
   }
 
   const handleEdit = async () => {
+    const trimmedSku = form.sku_name.trim()
+    if (!trimmedSku) { setError('SKU name is required'); return }
     setSubmitting(true); setError(null)
     try {
       const body = {
+        sku_name: trimmedSku,
         description: form.description,
         image: form.image,
         color: form.color,
@@ -98,6 +175,16 @@ function SkuCatalog() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
+
+      setImageCache(prev => {
+        const next = { ...prev }
+        if (selected.sku_name !== trimmedSku) {
+          delete next[selected.sku_name]
+        }
+        next[trimmedSku] = form.image || null
+        return next
+      })
+
       flash('SKU updated')
       closeModal()
       fetchSkus()
@@ -117,12 +204,14 @@ function SkuCatalog() {
     finally { setSubmitting(false) }
   }
 
-  const filtered = skus.filter(s =>
-    s.sku_name.toLowerCase().includes(search.toLowerCase()) ||
-    (s.description || '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.color || '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.fabric || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = skus
+    .filter(s =>
+      s.sku_name.toLowerCase().includes(search.toLowerCase()) ||
+      (s.description || '').toLowerCase().includes(search.toLowerCase()) ||
+      (s.color || '').toLowerCase().includes(search.toLowerCase()) ||
+      (s.fabric || '').toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => (a.sku_name || '').localeCompare(b.sku_name || '', undefined, { sensitivity: 'base', numeric: true }) || (a.sku_name || '').localeCompare(b.sku_name || ''))
 
   return (
     <div>
@@ -197,18 +286,12 @@ function SkuCatalog() {
                 {filtered.map(sku => (
                   <tr key={sku.sku_name}>
                     <td>
-                      {sku.image ? (
-                        <img
-                          src={sku.image}
-                          alt={sku.sku_name}
-                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border-color)' }}
-                          onClick={() => setPreviewImg(sku.image)}
-                        />
-                      ) : (
-                        <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border-color)' }}>
-                          <MdImage size={20} style={{ color: 'var(--text-secondary)' }} />
-                        </div>
-                      )}
+                      <SkuThumbnail
+                        sku={sku}
+                        imageCache={imageCache}
+                        onImageLoaded={handleImageLoaded}
+                        onPreview={setPreviewImg}
+                      />
                     </td>
                     <td><strong>{sku.sku_name}</strong></td>
                     <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{sku.description || '—'}</td>
@@ -268,18 +351,16 @@ function SkuCatalog() {
               <div className="alert alert-danger" style={{ marginBottom: 12 }}><MdWarning size={16} /> {error}</div>
             )}
 
-            {modal === 'create' && (
-              <div className="form-group">
-                <label className="form-label">SKU Name *</label>
-                <input
-                  className="form-input"
-                  placeholder="e.g. Kia Vine Saree"
-                  value={form.sku_name}
-                  onChange={e => setForm(p => ({ ...p, sku_name: e.target.value }))}
-                  autoFocus
-                />
-              </div>
-            )}
+            <div className="form-group">
+              <label className="form-label">SKU Name *</label>
+              <input
+                className="form-input"
+                placeholder="e.g. Kia Vine Saree"
+                value={form.sku_name}
+                onChange={e => setForm(p => ({ ...p, sku_name: e.target.value }))}
+                autoFocus
+              />
+            </div>
 
             <div className="form-group">
               <label className="form-label">Description</label>
@@ -288,7 +369,6 @@ function SkuCatalog() {
                 placeholder="Optional short description"
                 value={form.description}
                 onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-                autoFocus={modal === 'edit'}
               />
             </div>
 

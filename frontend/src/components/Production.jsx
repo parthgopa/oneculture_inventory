@@ -16,13 +16,13 @@ import styles from './Production.module.css'
 
 const TABS = [
   // { id: 'overview',        label: 'Overview',         icon: MdBuild },
-  { id: 'orders',          label: 'Cloth Orders',     icon: MdAssignment },
-  { id: 'workers',         label: 'Workers',          icon: MdPeople },
-  { id: 'suppliers',       label: 'Suppliers',        icon: MdStorefront },
-  { id: 'jobwork',         label: 'Job Work',         icon: MdBuild },
-  { id: 'additionalwork',  label: 'Additional Work',  icon: MdSwapHoriz },
-  { id: 'receivegoods',    label: 'Receive Goods',    icon: MdInbox },
-  { id: 'rf',              label: 'RF',               icon: MdAssignmentReturn },
+  { id: 'orders', label: 'Cloth Orders', icon: MdAssignment },
+  { id: 'workers', label: 'Workers', icon: MdPeople },
+  { id: 'suppliers', label: 'Suppliers', icon: MdStorefront },
+  { id: 'jobwork', label: 'Job Work', icon: MdBuild },
+  { id: 'additionalwork', label: 'Additional Work', icon: MdSwapHoriz },
+  { id: 'receivegoods', label: 'Receive Goods', icon: MdInbox },
+  { id: 'rf', label: 'RF', icon: MdAssignmentReturn },
   { id: 'generatebarcode', label: 'Barcode', icon: MdQrCode2 },
 ]
 
@@ -41,17 +41,17 @@ function Production() {
       navigate('/production', { replace: true })
     }
   }, [])
-  const [loading, setLoading]     = useState(true)
-  const [success, setSuccess]     = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [success, setSuccess] = useState(null)
 
   const [selectedWorker, setSelectedWorker] = useState(null)
-  const [stats, setStats]             = useState(null)
-  const [orders, setOrders]           = useState([])
-  const [workers, setWorkers]         = useState([])
+  const [stats, setStats] = useState(null)
+  const [orders, setOrders] = useState([])
+  const [workers, setWorkers] = useState([])
   const [workerStock, setWorkerStock] = useState([])
-  const [ledger, setLedger]           = useState([])
-  const [readyItems, setReadyItems]   = useState([])
-  const [suppliers, setSuppliers]     = useState([])
+  const [ledger, setLedger] = useState([])
+  const [readyItems, setReadyItems] = useState([])
+  const [suppliers, setSuppliers] = useState([])
 
   const fetchAll = useCallback(async () => {
     try {
@@ -106,7 +106,7 @@ function Production() {
             <MdBuild size={30} style={{ verticalAlign: 'middle', marginRight: 10 }} />
             Production
           </h1>
-          <p className="page-subtitle">Cloth Order → Job Work → Additional Work → Barcode</p>
+          {/* <p className="page-subtitle">Cloth Order → Job Work → Additional Work → Barcode</p> */}
         </div>
         {/* <button className="btn btn-outline" onClick={fetchAll} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <MdRefresh size={18} /> Refresh

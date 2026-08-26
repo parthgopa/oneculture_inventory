@@ -6,6 +6,7 @@ import {
   EditableDateCell, RevertButton
 } from './helpers'
 import QuickAddWorker from './QuickAddWorker'
+import WorkerHoldingsMasterDetail from './WorkerHoldingsMasterDetail'
 import styles from './AdditionalWork.module.css'
 
 function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
@@ -76,8 +77,25 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
     finally { setSubmitting(false) }
   }
 
-  const openTransfer = () => {
-    setTransferForm({ from_worker: '', to_worker: '', order_id: '', sku_name: '', color: '', quantity: '', work_type: '', notes: '', date: today })
+  const openTransfer = (itemData = null) => {
+    if (itemData && typeof itemData === 'object' && itemData.workerName) {
+      const isBulk = Boolean(itemData.bulk)
+      setBulkTransfer(isBulk)
+      setTransferForm({
+        from_worker: itemData.workerName || '',
+        to_worker: '',
+        order_id: itemData.orderId || '',
+        sku_name: isBulk ? '' : (itemData.skuName || ''),
+        color: isBulk ? '' : (itemData.color || ''),
+        quantity: isBulk ? '' : (itemData.quantity || ''),
+        work_type: '',
+        notes: '',
+        date: today
+      })
+    } else {
+      setBulkTransfer(false)
+      setTransferForm({ from_worker: '', to_worker: '', order_id: '', sku_name: '', color: '', quantity: '', work_type: '', notes: '', date: today })
+    }
     setLocalWorkers(workers)
     setModal('transfer')
   }
@@ -116,29 +134,19 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
     if (e.sku_name && e.from_entity) skuSupplierMap[e.sku_name] = e.from_entity
   })
 
-  // Filter to only "Additional Work" workers (non-Embroidery)
-  const additionalWorkerNames = new Set(workers.filter(w => w.work_type !== 'Embroidery').map(w => w.name))
-
   // Build order→supplier map for display
   const orderSupplierMap = {}
   orders.forEach(o => { orderSupplierMap[o.order_id] = o.supplier_name || '—' })
 
-  const grouped = {}
-  workerStock.filter(ws => additionalWorkerNames.has(ws.worker_name)).forEach(ws => {
-    if (!grouped[ws.worker_name]) grouped[ws.worker_name] = []
-    grouped[ws.worker_name].push(ws)
-  })
-
   const additionalLedger = ledger.filter(e =>
-    ['job_assigned', 'transferred', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage) &&
-    (additionalWorkerNames.has(e.from_entity) || additionalWorkerNames.has(e.to_entity))
+    ['job_assigned', 'transferred', 'returned_to_supplier', 'reverted', 'revert_source'].includes(e.stage)
   )
 
   return (
     <div>
       {/* Action bar */}
       <div className={styles.toolbar}>
-        <button className="btn btn-primary" onClick={openTransfer}>
+        <button className="btn btn-primary" onClick={() => openTransfer()}>
           <MdSwapHoriz size={17} /> Transfer Between Workers
         </button>
         <button className="btn btn-outline" style={{ borderColor: '#ef4444', color: '#ef4444' }} onClick={openReturn}>
@@ -146,63 +154,20 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
         </button>
       </div>
 
-      {/* Worker Holdings */}
-      {Object.keys(grouped).length > 0 ? (
-        <div className={styles.workerGrid}>
-          {Object.entries(grouped).map(([workerName, items]) => {
-                // Group items by order_id
-                const byOrder = {}
-                items.forEach(item => {
-                  const oid = item.order_id || 'Other'
-                  if (!byOrder[oid]) byOrder[oid] = []
-                  byOrder[oid].push(item)
-                })
-                return (
-                <div key={workerName} className={styles.workerCard}>
-                  <div className={styles.workerCardHeader}>
-                    <div className={styles.avatar}>{workerName[0].toUpperCase()}</div>
-                    <div>
-                      <div className={styles.workerName}>{workerName}</div>
-                      <div className={styles.workerSub}>{items.reduce((s, i) => s + i.quantity, 0)} pieces total</div>
-                    </div>
-                  </div>
-                  {Object.entries(byOrder).map(([orderId, orderItems]) => {
-                    const chalanNumber = orderItems[0]?.chalan_number || ''
-                    return (
-                      <div key={orderId} style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6, border: '1px solid var(--border-color, #e5e7eb)' }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          {chalanNumber && (
-                            <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>
-                              # ({chalanNumber})
-                            </span>
-                          )}
-                          <span style={{ color: 'var(--text-primary)' }}>
-                            {orderId.startsWith('ORD') ? orderId : 'Other'}
-                          </span>
-                          <span style={{ color: '#6366f1', fontWeight: 400 }}>({orderSupplierMap[orderId] || '—'})</span>
-                        </div>
-                        {orderItems.map((item, idx) => (
-                          <div key={idx} className={styles.skuRow} style={{ marginLeft: 8 }}>
-                            <span>{item.sku_name}{item.color ? <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginLeft: 6 }}>({item.color})</span> : ''}</span>
-                            <span className="badge badge-warning">{item.quantity}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-                )
-              })}
-        </div>
-      ) : (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="empty-state" style={{ padding: 40 }}>
-            <div className="empty-state-icon"><MdSwapHoriz size={52} /></div>
-            <div className="empty-state-title">No worker holdings yet</div>
-            <div className="empty-state-description">Assign cloth in Job Work first, then transfer here for diamond work, jari, etc.</div>
-          </div>
-        </div>
-      )}
+      {/* Master-Detail Worker Holdings */}
+      <WorkerHoldingsMasterDetail
+        workerStock={workerStock}
+        workers={workers}
+        orders={orders}
+        emptyTitle="No worker holdings yet"
+        emptyDescription="Assign cloth in Job Work first, then transfer here for diamond work, jari, etc."
+        onItemAction={(itemData) => openTransfer(itemData)}
+        itemActionLabel="Transfer"
+        itemActionColor="var(--primary-color, #6366f1)"
+        onChalanAction={(chalanData) => openTransfer(chalanData)}
+        chalanActionLabel="Transfer Whole Chalan"
+        chalanActionColor="var(--primary-color, #6366f1)"
+      />
 
       {/* Ledger */}
       <div className="card">
@@ -219,22 +184,28 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
                 <tr><th>#</th><th>SKU</th><th>From</th><th></th><th>To</th><th>Qty</th><th>Stage</th><th>Date</th><th></th></tr>
               </thead>
               <tbody>
-                {additionalLedger.map((e, i) => (
-                  <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
-                    <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
-                    <td>
-                      <strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong>
-                      {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 12, opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.from_entity}</td>
-                    <td><MdArrowForward size={14} /></td>
-                    <td style={{ fontWeight: 600, fontSize: 12, opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.to_entity}</td>
-                    <td><span className="badge badge-primary">{e.quantity}</span></td>
-                    <td><Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} /></td>
-                    <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
-                    <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
-                  </tr>
-                ))}
+                {additionalLedger.map((e, i) => {
+                  const chalanNum = e.chalan_number || orders.find(o => o.order_id === e.order_id)?.chalan_number || ''
+                  return (
+                    <tr key={i} style={{ background: e.stage === 'revert_source' ? 'rgba(107,114,128,0.06)' : 'transparent' }}>
+                      <td style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{e.ledger_number_int || '—'}</td>
+                      <td>
+                        {chalanNum && (
+                          <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 11, marginRight: 5 }}>#{chalanNum}</span>
+                        )}
+                        <strong style={{ textDecoration: e.stage === 'revert_source' ? 'line-through' : 'none', opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.sku_name}</strong>
+                        {e.color && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 4 }}>({e.color})</span>}
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: 12, opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.from_entity}</td>
+                      <td><MdArrowForward size={14} /></td>
+                      <td style={{ fontWeight: 600, fontSize: 12, opacity: e.stage === 'revert_source' ? 0.55 : 1 }}>{e.to_entity}</td>
+                      <td><span className="badge badge-primary">{e.quantity}</span></td>
+                      <td><Badge text={STAGE_LABELS[e.stage] || e.stage} color={STAGE_COLORS[e.stage]} /></td>
+                      <td><EditableDateCell ledgerId={e.ledger_id} dateStr={e.created_at} onSaved={onRefresh} /></td>
+                      <td><RevertButton ledgerId={e.ledger_id} stage={e.stage} onReverted={onRefresh} /></td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -257,8 +228,8 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
               onChange={e => setReturnForm(p => ({ ...p, from_entity: e.target.value }))}>
               <option value="">Select source...</option>
               <option value="company">company</option>
-              {workers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
-                .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {[...new Set(workerStock.filter(ws => ws.quantity > 0).map(ws => ws.worker_name))].sort()
+                .map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </FormRow>
           <FormRow label="SKU Name" required>
@@ -335,10 +306,20 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
           </p>
           <FormRow label="From Worker" required>
             <select className="form-input" value={transferForm.from_worker}
-              onChange={e => setTransferForm(p => ({ ...p, from_worker: e.target.value }))}>
+              onChange={e => {
+                const w = e.target.value
+                setTransferForm(p => ({
+                  ...p,
+                  from_worker: w,
+                  order_id: '',
+                  sku_name: '',
+                  color: '',
+                  quantity: ''
+                }))
+              }}>
               <option value="">Select Worker...</option>
-              {localWorkers.filter(w => workerStock.some(ws => ws.worker_name === w.name && ws.quantity > 0))
-                .map(w => <option key={w.worker_id} value={w.name}>{w.name}</option>)}
+              {[...new Set(workerStock.filter(ws => ws.quantity > 0).map(ws => ws.worker_name))].sort()
+                .map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </FormRow>
           {transferForm.from_worker && workerStock.filter(ws => ws.worker_name === transferForm.from_worker).length > 0 && (
@@ -384,8 +365,8 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
                       </div>
                     </div>
                   )
-                }) // <--- FIXED: Changed )) to })
-              })()} {/* <--- FIXED: Added () to invoke the function */}
+                })
+              })()}
             </div>
           )}
           <div className="form-group">
@@ -401,12 +382,19 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
                 <option key={w.worker_id} value={w.name}>{w.name} ({w.work_type || 'Job Work'})</option>
               )}
             </select>
-            {/* <QuickAddWorker defaultWorkType="Additional Work"
-              onWorkerAdded={(w) => { mergeWorker(w); setTransferForm(p => ({ ...p, to_worker: w.name, work_type: w.work_type })) }} /> */}
           </div>
           <FormRow label="Order ID" required>
             <select className="form-input" value={transferForm.order_id}
-              onChange={e => setTransferForm(p => ({ ...p, order_id: e.target.value, sku_name: '', color: '' }))}>
+              onChange={e => {
+                const oid = e.target.value
+                setTransferForm(p => ({
+                  ...p,
+                  order_id: oid,
+                  sku_name: '',
+                  color: '',
+                  quantity: ''
+                }))
+              }}>
               <option value="">Select Order...</option>
               {transferForm.from_worker
                 ? [...new Set(workerStock
@@ -430,62 +418,54 @@ function AdditionalWork({ workers, workerStock, ledger, orders, onRefresh }) {
           </FormRow>
 
           {/* Highlighted Bulk Transfer Checkbox */}
-          {transferForm.from_worker && transferForm.to_worker && transferForm.order_id && (() => {
-            const orderHoldings = workerStock.filter(ws =>
-              ws.worker_name === transferForm.from_worker &&
-              ws.order_id === transferForm.order_id &&
-              ws.quantity > 0
-            )
-            const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
-            return uniqueSkus.length > 1
-          })() && (
-              <div style={{
-                backgroundColor: '#fef3c7',
-                border: '2px solid #f59e0b',
-                borderRadius: '8px',
-                padding: '12px',
-                marginBottom: '16px'
+          {transferForm.from_worker && transferForm.order_id && (
+            <div style={{
+              backgroundColor: '#fef3c7',
+              border: '2px solid #f59e0b',
+              borderRadius: '8px',
+              padding: '12px',
+              marginBottom: '16px'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                color: '#92400e'
               }}>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  color: '#92400e'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={bulkTransfer}
-                    onChange={e => setBulkTransfer(e.target.checked)}
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      cursor: 'pointer'
-                    }}
-                  />
-                  <span style={{ fontSize: '14px' }}>
-                    🚀 TRANSFER ALL SKUs for this order ({(() => {
-                      const orderHoldings = workerStock.filter(ws =>
-                        ws.worker_name === transferForm.from_worker &&
-                        ws.order_id === transferForm.order_id &&
-                        ws.quantity > 0
-                      )
-                      const uniqueSkus = [...new Set(orderHoldings.map(h => h.sku_name))]
-                      return uniqueSkus.length
-                    })()} different SKUs)
-                  </span>
-                </label>
-                <p style={{
-                  margin: '8px 0 0 0',
-                  fontSize: '12px',
-                  color: '#78350f',
-                  paddingLeft: '26px'
-                }}>
-                  This will transfer all items from this order at once, saving you time!
-                </p>
-              </div>
-            )}
+                <input
+                  type="checkbox"
+                  checked={bulkTransfer}
+                  onChange={e => setBulkTransfer(e.target.checked)}
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    cursor: 'pointer'
+                  }}
+                />
+                <span style={{ fontSize: '14px' }}>
+                  🚀 TRANSFER ALL SKUs for this order ({(() => {
+                    const orderHoldings = workerStock.filter(ws =>
+                      ws.worker_name === transferForm.from_worker &&
+                      ws.order_id === transferForm.order_id &&
+                      ws.quantity > 0
+                    )
+                    const totalPcs = orderHoldings.reduce((sum, item) => sum + item.quantity, 0)
+                    return `${totalPcs} pieces`
+                  })()})
+                </span>
+              </label>
+              <p style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: '#78350f',
+                paddingLeft: '26px'
+              }}>
+                This will transfer all items from this order at once, saving you time!
+              </p>
+            </div>
+          )}
 
           {/* Show note and calculate totals when bulk transfer is selected */}
           {bulkTransfer && transferForm.from_worker && transferForm.to_worker && transferForm.order_id && (() => {
